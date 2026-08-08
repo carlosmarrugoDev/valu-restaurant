@@ -35,7 +35,7 @@ function SidebarContent({
           </span>
           <div className="leading-tight">
             <p className="font-display text-base font-semibold tracking-tight">Valu</p>
-            <p className="text-xs text-muted-foreground">Valu Restaurant</p>
+            <p className="text-xs text-muted-foreground">Valu Restaurantg</p>
           </div>
         </div>
         {onClose && (
