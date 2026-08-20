@@ -3,7 +3,7 @@
 export type Role = 'dueno' | 'gerente' | 'mesero' | 'cocina' | 'cajero'
 
 export const ROLES: { id: Role; label: string }[] = [
-  { id: 'dueno', label: 'Valentina Angarita' },
+  { id: 'dueno', label: 'Dueño' },
   { id: 'gerente', label: 'Gerente' },
   { id: 'mesero', label: 'Mesero' },
   { id: 'cocina', label: 'Cocina' },
@@ -16,6 +16,8 @@ export type ModuleId =
   | 'pedidos'
   | 'cocina'
   | 'cobro'
+  | 'caja'
+  | 'productos'
   | 'reportes'
   | 'inventario'
   | 'personal'
@@ -29,15 +31,28 @@ export const ROLE_ACCESS: Record<Role, ModuleId[]> = {
     'pedidos',
     'cocina',
     'cobro',
+    'caja',
+    'productos',
     'reportes',
     'inventario',
     'personal',
     'configuracion',
   ],
-  gerente: ['dashboard', 'mesas', 'pedidos', 'cocina', 'cobro', 'reportes', 'inventario', 'personal'],
-  mesero: ['mesas', 'pedidos'],
+  gerente: [
+    'dashboard',
+    'mesas',
+    'pedidos',
+    'cocina',
+    'cobro',
+    'caja',
+    'productos',
+    'reportes',
+    'inventario',
+    'personal',
+  ],
+  mesero: ['mesas', 'pedidos', 'cobro'],
   cocina: ['cocina'],
-  cajero: ['mesas', 'pedidos', 'cobro', 'reportes'],
+  cajero: ['mesas', 'pedidos', 'cobro', 'caja', 'reportes'],
 }
 
 export const currency = (n: number) =>

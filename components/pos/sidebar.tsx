@@ -7,6 +7,8 @@ import type { ModuleId } from '@/lib/data'
 import type { NavItem } from './app-shell'
 import { Button } from '@/components/ui/button'
 
+import { useAuth } from '@/components/auth/auth-context'
+
 type SidebarProps = {
   items: NavItem[]
   active?: ModuleId
@@ -26,6 +28,9 @@ function SidebarContent({
   onNavigate: (id: ModuleId) => void
   onClose?: () => void
 }) {
+  const { user } = useAuth()
+  const tenantNombre = (user as any)?.tenant_nombre || 'Restaurante'
+
   return (
     <div className="flex h-full flex-col bg-sidebar text-sidebar-foreground">
       <div className="flex h-16 items-center justify-between gap-2 border-b border-sidebar-border px-5">
@@ -34,8 +39,8 @@ function SidebarContent({
             <Flame className="size-5" />
           </span>
           <div className="leading-tight">
-            <p className="font-display text-base font-semibold tracking-tight">Valu</p>
-            <p className="text-xs text-muted-foreground">Valu Restaurantg</p>
+            <p className="font-display text-base font-semibold tracking-tight">{tenantNombre}</p>
+            <p className="text-xs text-muted-foreground">Sistema POS</p>
           </div>
         </div>
         {onClose && (

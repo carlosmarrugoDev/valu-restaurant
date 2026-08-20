@@ -1,16 +1,18 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import {
   LayoutDashboard,
   LayoutGrid,
   ClipboardList,
   ChefHat,
   Receipt,
+  Package,
   ChartColumnBig,
   Boxes,
   Users,
   Settings,
+  Wallet, // Cambiado de CashRegister a Wallet
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
@@ -24,7 +26,10 @@ import { Kitchen } from './kitchen'
 import { Checkout } from './checkout'
 import { Reports } from './reports'
 import { Inventory } from './inventory'
+import { CashRegister } from './cash-register'
 import { SimpleModule } from './simple-module'
+import { ProductManager } from '@/components/products/product-manager'
+import { useAuth } from '@/components/auth/auth-context'
 
 export type NavItem = {
   id: ModuleId
@@ -38,6 +43,8 @@ export const NAV_ITEMS: NavItem[] = [
   { id: 'pedidos', label: 'Pedidos', icon: ClipboardList },
   { id: 'cocina', label: 'Cocina', icon: ChefHat },
   { id: 'cobro', label: 'Cobro', icon: Receipt },
+  { id: 'caja', label: 'Caja', icon: Wallet }, // Cambiado a Wallet
+  { id: 'productos', label: 'Productos', icon: Package },
   { id: 'reportes', label: 'Reportes', icon: ChartColumnBig },
   { id: 'inventario', label: 'Inventario', icon: Boxes },
   { id: 'personal', label: 'Personal', icon: Users },
@@ -45,9 +52,18 @@ export const NAV_ITEMS: NavItem[] = [
 ]
 
 export function AppShell() {
+  const { user, loading: authLoading, refreshUser } = useAuth()
   const [role, setRole] = useState<Role>('dueno')
   const [active, setActive] = useState<ModuleId>('dashboard')
   const [mobileOpen, setMobileOpen] = useState(false)
+
+  useEffect(() => {
+    if (user?.rol) {
+      const validRoles: Role[] = ['dueno', 'gerente', 'mesero', 'cocina', 'cajero']
+      const r = validRoles.includes(user.rol as Role) ? (user.rol as Role) : 'dueno'
+      setRole(r)
+    }
+  }, [user?.rol])
 
   const allowed = ROLE_ACCESS[role]
   const visibleItems = useMemo(
@@ -55,7 +71,6 @@ export function AppShell() {
     [allowed],
   )
 
-  // Si el rol actual no puede ver el módulo activo, saltar al primero permitido.
   const currentActive = allowed.includes(active) ? active : visibleItems[0]?.id
 
   const handleRoleChange = (next: Role) => {
@@ -97,6 +112,8 @@ export function AppShell() {
             {currentActive === 'pedidos' && <OrderTaking />}
             {currentActive === 'cocina' && <Kitchen />}
             {currentActive === 'cobro' && <Checkout />}
+            {currentActive === 'caja' && <CashRegister />}
+            {currentActive === 'productos' && <ProductManager />}
             {currentActive === 'reportes' && <Reports />}
             {currentActive === 'inventario' && <Inventory />}
             {currentActive === 'personal' && (

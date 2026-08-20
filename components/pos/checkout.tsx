@@ -1,37 +1,25 @@
+// components/pos/checkout.tsx - VERSIÓN CONECTADA CON TOAST
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import {
-  Banknote,
-  CreditCard,
-  Smartphone,
-  Printer,
-  Send,
-  Users,
-  Split,
-  Receipt,
+  Banknote, CreditCard, Smartphone,
+  Printer, Send, Users, Split, Receipt, Loader2,
 } from 'lucide-react'
 
-import { cuentaActual, currencyDetailed } from '@/lib/data'
+import { currencyDetailed } from '@/lib/data'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
+  Card, CardContent, CardDescription, CardHeader, CardTitle,
 } from '@/components/ui/card'
 import { Separator } from '@/components/ui/separator'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
+import { useAuth } from '@/components/auth/auth-context'
+import { toast } from 'sonner'
 
 const IVA = 0.16
 const propinaOpciones = [0, 10, 15, 20]
@@ -43,120 +31,145 @@ const metodos = [
 ]
 
 export function Checkout() {
+  const { user } = useAuth()
+  const [pedidos, setPedidos] = useState<any[]>([])
+  const [pedidoSeleccionado, setPedidoSeleccionado] = useState<any | null>(null)
+  const [loading, setLoading] = useState(true)
   const [split, setSplit] = useState('none')
   const [personas, setPersonas] = useState(2)
   const [propina, setPropina] = useState(15)
   const [metodo, setMetodo] = useState('tarjeta')
+  const [procesando, setProcesando] = useState(false)
 
+  useEffect(() => {
+    loadPedidos()
+  }, [user])
+
+  const loadPedidos = async () => {
+    setLoading(true)
+    try {
+      const res = await fetch('/api/pedidos?activos=true')
+      const data = await res.json()
+      if (res.ok) {
+        setPedidos(data.pedidos || [])
+        if (data.pedidos?.length > 0 && (!pedidoSeleccionado || !data.pedidos.find((p: any) => p.id === pedidoSeleccionado.id))) {
+          setPedidoSeleccionado(data.pedidos[0])
+        }
+      }
+    } catch {
+      toast.error('Error al cargar pedidos')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const cobrarPedido = async () => {
+    if (!pedidoSeleccionado) return
+    setProcesando(true)
+    try {
+      const res = await fetch(`/api/pedidos?id=${pedidoSeleccionado.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          estado: 'pagado',
+          metodo_pago: metodo,
+          propina: propinaMonto,
+        }),
+      })
+      const data = await res.json()
+      if (res.ok) {
+        toast.success(`Pedido cobrado: ${currencyDetailed(total)}`)
+        await loadPedidos()
+        setPedidoSeleccionado(null)
+      } else {
+        toast.error(data.error || 'Error al cobrar')
+      }
+    } catch {
+      toast.error('Error de conexión')
+    } finally {
+      setProcesando(false)
+    }
+  }
+
+  const items = pedidoSeleccionado?.items || []
   const { subtotal, impuestos, propinaMonto, total } = useMemo(() => {
-    const subtotal = cuentaActual.reduce((s, i) => s + i.precio * i.cantidad, 0)
+    const subtotal = items.reduce((s: number, i: any) => s + i.precio_unitario * i.cantidad, 0)
     const impuestos = subtotal * IVA
     const base = subtotal + impuestos
     const propinaMonto = base * (propina / 100)
     return { subtotal, impuestos, propinaMonto, total: base + propinaMonto }
-  }, [propina])
+  }, [items, propina])
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-24">
+        <Loader2 className="size-8 animate-spin text-primary" />
+      </div>
+    )
+  }
 
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_380px]">
-      {/* Resumen de la cuenta */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Receipt className="size-4 text-primary" /> Cuenta · Mesa 9
-          </CardTitle>
-          <CardDescription>5 ítems · Mesero: Lucía R. · Abierta 22 min</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Cant.</TableHead>
-                <TableHead>Descripción</TableHead>
-                <TableHead className="text-right">P. unit.</TableHead>
-                <TableHead className="text-right">Importe</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {cuentaActual.map((item) => (
-                <TableRow key={item.id}>
-                  <TableCell className="tabular-nums text-muted-foreground">
-                    {item.cantidad}
-                  </TableCell>
-                  <TableCell className="font-medium">{item.nombre}</TableCell>
-                  <TableCell className="text-right tabular-nums text-muted-foreground">
-                    {currencyDetailed(item.precio)}
-                  </TableCell>
-                  <TableCell className="text-right font-medium tabular-nums">
-                    {currencyDetailed(item.precio * item.cantidad)}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-
-          <Separator className="my-4" />
-
-          <div className="flex flex-col gap-3">
-            <p className="text-sm font-medium">Dividir cuenta</p>
-            <ToggleGroup
-              value={[split]}
-              onValueChange={(v) => v[0] && setSplit(v[0])}
-              variant="outline"
-              className="w-full"
+      {/* Selección de pedido */}
+      <div className="space-y-4">
+        <div className="flex flex-wrap gap-2">
+          {pedidos.map((p) => (
+            <Button
+              key={p.id}
+              variant={pedidoSeleccionado?.id === p.id ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setPedidoSeleccionado(p)}
             >
-              <ToggleGroupItem value="none" className="flex-1">
-                Sin dividir
-              </ToggleGroupItem>
-              <ToggleGroupItem value="persona" className="flex-1">
-                <Users data-icon="inline-start" />
-                Por persona
-              </ToggleGroupItem>
-              <ToggleGroupItem value="item" className="flex-1">
-                <Split data-icon="inline-start" />
-                Por ítem
-              </ToggleGroupItem>
-            </ToggleGroup>
+              Mesa {p.mesa_nombre || p.mesa_id} · #{p.numero_pedido}
+            </Button>
+          ))}
+          {pedidos.length === 0 && (
+            <p className="text-muted-foreground">No hay pedidos para cobrar</p>
+          )}
+        </div>
 
-            {split === 'persona' && (
-              <div className="flex items-center justify-between rounded-lg bg-muted/50 p-3">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm text-muted-foreground">Personas</span>
-                  <div className="flex items-center gap-1">
-                    <Button
-                      size="icon-sm"
-                      variant="outline"
-                      onClick={() => setPersonas((n) => Math.max(2, n - 1))}
-                    >
-                      −
-                    </Button>
-                    <span className="w-7 text-center font-medium tabular-nums">{personas}</span>
-                    <Button
-                      size="icon-sm"
-                      variant="outline"
-                      onClick={() => setPersonas((n) => Math.min(12, n + 1))}
-                    >
-                      +
-                    </Button>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <p className="text-xs text-muted-foreground">Por persona</p>
-                  <p className="font-display font-semibold text-primary tabular-nums">
-                    {currencyDetailed(total / personas)}
-                  </p>
-                </div>
-              </div>
-            )}
-
-            {split === 'item' && (
-              <p className="rounded-lg bg-muted/50 p-3 text-sm text-muted-foreground">
-                Selecciona en cada ítem a qué comensal se asigna. Cada cuenta se cobra por
-                separado.
-              </p>
-            )}
-          </div>
-        </CardContent>
-      </Card>
+        {pedidoSeleccionado && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Receipt className="size-4 text-primary" />
+                Cuenta · {pedidoSeleccionado.mesa_nombre || `Mesa #${pedidoSeleccionado.mesa_id}`}
+              </CardTitle>
+              <CardDescription>
+                {items.length} ítems · Mesero: {pedidoSeleccionado.mesero_nombre || '—'}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Cant.</TableHead>
+                    <TableHead>Descripción</TableHead>
+                    <TableHead className="text-right">P. unit.</TableHead>
+                    <TableHead className="text-right">Importe</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {items.map((item: any, i: number) => (
+                    <TableRow key={i}>
+                      <TableCell className="tabular-nums text-muted-foreground">
+                        {item.cantidad}
+                      </TableCell>
+                      <TableCell className="font-medium">{item.nombre_producto}</TableCell>
+                      <TableCell className="text-right tabular-nums text-muted-foreground">
+                        {currencyDetailed(item.precio_unitario)}
+                      </TableCell>
+                      <TableCell className="text-right font-medium tabular-nums">
+                        {currencyDetailed(item.precio_unitario * item.cantidad)}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        )}
+      </div>
 
       {/* Panel de pago */}
       <div className="lg:sticky lg:top-6 lg:self-start">
@@ -229,15 +242,21 @@ export function Checkout() {
             </div>
 
             <div className="flex flex-col gap-2">
-              <Button size="lg" className="w-full">
+              <Button
+                size="lg"
+                className="w-full"
+                disabled={!pedidoSeleccionado || procesando}
+                onClick={cobrarPedido}
+              >
+                {procesando && <Loader2 className="size-4 animate-spin mr-2" />}
                 Cobrar {currencyDetailed(total)}
               </Button>
               <div className="grid grid-cols-2 gap-2">
-                <Button variant="outline">
+                <Button variant="outline" disabled>
                   <Printer data-icon="inline-start" />
                   Imprimir
                 </Button>
-                <Button variant="outline">
+                <Button variant="outline" disabled>
                   <Send data-icon="inline-start" />
                   Enviar
                 </Button>
