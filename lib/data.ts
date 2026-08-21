@@ -21,6 +21,7 @@ export type ModuleId =
   | 'reportes'
   | 'inventario'
   | 'personal'
+  | 'qr'
   | 'configuracion'
 
 // Qué módulos puede ver cada rol.
@@ -36,6 +37,7 @@ export const ROLE_ACCESS: Record<Role, ModuleId[]> = {
     'reportes',
     'inventario',
     'personal',
+    'qr',
     'configuracion',
   ],
   gerente: [
@@ -49,10 +51,11 @@ export const ROLE_ACCESS: Record<Role, ModuleId[]> = {
     'reportes',
     'inventario',
     'personal',
+    'qr',
   ],
-  mesero: ['mesas', 'pedidos', 'cobro'],
+  mesero: ['mesas', 'pedidos', 'cobro', 'qr'],
   cocina: ['cocina'],
-  cajero: ['mesas', 'pedidos', 'cobro', 'caja', 'reportes'],
+  cajero: ['mesas', 'pedidos', 'cobro', 'caja', 'reportes', 'qr'],
 }
 
 export const currency = (n: number) =>

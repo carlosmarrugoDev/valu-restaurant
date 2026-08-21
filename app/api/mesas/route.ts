@@ -1,4 +1,4 @@
-// app/api/mesas/route.ts
+// app/api/mesas/route.ts - COMPLETO CON CRUD
 import { NextResponse, NextRequest } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { requireTenantAuth, PLAN_LIMITS } from '@/lib/auth'
@@ -65,6 +65,7 @@ export async function POST(req: NextRequest) {
         forma: forma || 'cuadro',
         zona: zona || null,
         estado: 'libre',
+        orden: (count || 0) + 1,
       })
       .select()
       .single()
@@ -72,6 +73,88 @@ export async function POST(req: NextRequest) {
     if (createError) throw createError
 
     return NextResponse.json({ success: true, mesa }, { status: 201 })
+  } catch (error: any) {
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+}
+
+export async function PUT(req: NextRequest) {
+  try {
+    const { user, error } = requireTenantAuth(req)
+    if (error) return error
+
+    const { searchParams } = new URL(req.url)
+    const id = searchParams.get('id')
+    if (!id) {
+      return NextResponse.json({ error: 'ID requerido' }, { status: 400 })
+    }
+
+    const body = await req.json()
+    const { nombre, asientos, forma, zona } = body
+
+    const updates: Record<string, any> = {}
+    if (nombre) updates.nombre = nombre.trim()
+    if (asientos !== undefined) updates.asientos = asientos
+    if (forma) updates.forma = forma
+    if (zona !== undefined) updates.zona = zona
+    updates.fecha_actualizacion = new Date().toISOString()
+
+    const { data: mesa, error: updateError } = await supabase
+      .from('mesas')
+      .update(updates)
+      .eq('id', id)
+      .eq('tenant_id', user.tenantId)
+      .select()
+      .single()
+
+    if (updateError) throw updateError
+    if (!mesa) {
+      return NextResponse.json({ error: 'Mesa no encontrada' }, { status: 404 })
+    }
+
+    return NextResponse.json({ success: true, mesa })
+  } catch (error: any) {
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+}
+
+export async function DELETE(req: NextRequest) {
+  try {
+    const { user, error } = requireTenantAuth(req)
+    if (error) return error
+
+    const { searchParams } = new URL(req.url)
+    const id = searchParams.get('id')
+    if (!id) {
+      return NextResponse.json({ error: 'ID requerido' }, { status: 400 })
+    }
+
+    // Verificar que no tenga pedidos activos
+    const { data: pedidos } = await supabase
+      .from('pedidos')
+      .select('id')
+      .eq('mesa_id', id)
+      .eq('tenant_id', user.tenantId)
+      .neq('estado', 'pagado')
+      .neq('estado', 'cancelado')
+      .limit(1)
+
+    if (pedidos && pedidos.length > 0) {
+      return NextResponse.json(
+        { error: 'No se puede eliminar: la mesa tiene pedidos activos' },
+        { status: 409 }
+      )
+    }
+
+    const { error: deleteError } = await supabase
+      .from('mesas')
+      .delete()
+      .eq('id', id)
+      .eq('tenant_id', user.tenantId)
+
+    if (deleteError) throw deleteError
+
+    return NextResponse.json({ success: true, message: 'Mesa eliminada' })
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }

@@ -1,8 +1,7 @@
-// components/pos/tables-map.tsx - VERSIÓN CONECTADA
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Plus, Clock, User, Receipt, Armchair, Loader2 } from 'lucide-react'
+import { Plus, Clock, User, Receipt, Armchair, Loader2, Edit2, Trash2 } from 'lucide-react'
 
 import { currencyDetailed } from '@/lib/data'
 import { cn } from '@/lib/utils'
@@ -13,7 +12,11 @@ import {
   Dialog, DialogContent, DialogDescription,
   DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useAuth } from '@/components/auth/auth-context'
+import { toast } from 'sonner'
 
 const estadoStyles: Record<string, string> = {
   libre: 'border-status-free/40 bg-status-free/12 text-status-free hover:bg-status-free/20',
@@ -44,6 +47,8 @@ export function TablesMap() {
   const [error, setError] = useState<string | null>(null)
 
   const [openNewMesa, setOpenNewMesa] = useState(false)
+  const [openEditMesa, setOpenEditMesa] = useState(false)
+  const [editingMesa, setEditingMesa] = useState<any | null>(null)
   const [newMesaForm, setNewMesaForm] = useState({
     nombre: '',
     asientos: 4,
@@ -75,21 +80,74 @@ export function TablesMap() {
 
   const handleCreateMesa = async () => {
     if (!newMesaForm.nombre.trim()) {
-      alert('Ingresa el nombre de la mesa')
+      toast.error('Ingresa el nombre de la mesa')
       return
     }
-    const res = await fetch('/api/mesas', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(newMesaForm),
-    })
-    if (res.ok) {
-      setOpenNewMesa(false)
-      setNewMesaForm({ nombre: '', asientos: 4, forma: 'cuadro', zona: 'Salón principal' })
-      await loadMesas()
-    } else {
-      const errData = await res.json()
-      alert(errData.error || 'Error al crear mesa')
+    try {
+      const res = await fetch('/api/mesas', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newMesaForm),
+      })
+      if (res.ok) {
+        toast.success('Mesa creada')
+        setOpenNewMesa(false)
+        setNewMesaForm({ nombre: '', asientos: 4, forma: 'cuadro', zona: 'Salón principal' })
+        await loadMesas()
+      } else {
+        const data = await res.json()
+        toast.error(data.error || 'Error al crear mesa')
+      }
+    } catch {
+      toast.error('Error de conexión')
+    }
+  }
+
+  const handleUpdateMesa = async () => {
+    if (!editingMesa) return
+    if (!editingMesa.nombre.trim()) {
+      toast.error('Ingresa el nombre de la mesa')
+      return
+    }
+    try {
+      const res = await fetch(`/api/mesas?id=${editingMesa.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          nombre: editingMesa.nombre,
+          asientos: editingMesa.asientos,
+          forma: editingMesa.forma,
+          zona: editingMesa.zona,
+        }),
+      })
+      if (res.ok) {
+        toast.success('Mesa actualizada')
+        setOpenEditMesa(false)
+        setEditingMesa(null)
+        await loadMesas()
+      } else {
+        const data = await res.json()
+        toast.error(data.error || 'Error al actualizar mesa')
+      }
+    } catch {
+      toast.error('Error de conexión')
+    }
+  }
+
+  const handleDeleteMesa = async (id: string, nombre: string) => {
+    if (!confirm(`¿Eliminar la mesa "${nombre}"? Esta acción no se puede deshacer.`)) return
+    try {
+      const res = await fetch(`/api/mesas?id=${id}`, { method: 'DELETE' })
+      if (res.ok) {
+        toast.success('Mesa eliminada')
+        setSelected(null)
+        await loadMesas()
+      } else {
+        const data = await res.json()
+        toast.error(data.error || 'Error al eliminar mesa')
+      }
+    } catch {
+      toast.error('Error de conexión')
     }
   }
 
@@ -101,14 +159,30 @@ export function TablesMap() {
   ]
 
   const handleUpdateEstado = async (id: string, estado: string) => {
-    const res = await fetch(`/api/mesas?id=${id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ estado }),
-    })
-    if (res.ok) {
-      await loadMesas()
-      setSelected(null)
+    try {
+      const res = await fetch(`/api/mesas?id=${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ estado }),
+      })
+      if (res.ok) {
+        toast.success(`Mesa ${estado === 'libre' ? 'liberada' : 'actualizada'}`)
+        await loadMesas()
+        setSelected(null)
+      }
+    } catch {
+      toast.error('Error de conexión')
+    }
+  }
+
+  // Manejadores para selects
+  const handleNewFormaChange = (value: string) => {
+    setNewMesaForm({ ...newMesaForm, forma: value })
+  }
+
+  const handleEditFormaChange = (value: string) => {
+    if (editingMesa) {
+      setEditingMesa({ ...editingMesa, forma: value })
     }
   }
 
@@ -144,7 +218,7 @@ export function TablesMap() {
           ))}
         </div>
         <Button onClick={() => setOpenNewMesa(true)}>
-          <Plus data-icon="inline-start" />
+          <Plus className="size-4 mr-2" />
           Nueva mesa
         </Button>
       </div>
@@ -176,7 +250,7 @@ export function TablesMap() {
         </CardContent>
       </Card>
 
-      {/* Modal Nueva Mesa */}
+      {/* Dialog Nueva Mesa */}
       <Dialog open={openNewMesa} onOpenChange={setOpenNewMesa}>
         <DialogContent>
           <DialogHeader>
@@ -185,44 +259,40 @@ export function TablesMap() {
           </DialogHeader>
           <div className="space-y-4">
             <div>
-              <label className="text-sm font-medium">Nombre de la mesa</label>
-              <input
-                type="text"
+              <Label>Nombre de la mesa *</Label>
+              <Input
                 placeholder="Ej. Mesa 7, Terraza 2"
-                className="w-full mt-1 p-2 rounded-md border bg-background text-sm"
                 value={newMesaForm.nombre}
                 onChange={(e) => setNewMesaForm({ ...newMesaForm, nombre: e.target.value })}
               />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-sm font-medium">Asientos</label>
-                <input
+                <Label>Asientos</Label>
+                <Input
                   type="number"
                   min="1"
-                  className="w-full mt-1 p-2 rounded-md border bg-background text-sm"
                   value={newMesaForm.asientos}
                   onChange={(e) => setNewMesaForm({ ...newMesaForm, asientos: Number(e.target.value) || 2 })}
                 />
               </div>
               <div>
-                <label className="text-sm font-medium">Forma</label>
-                <select
-                  className="w-full mt-1 p-2 rounded-md border bg-background text-sm"
-                  value={newMesaForm.forma}
-                  onChange={(e) => setNewMesaForm({ ...newMesaForm, forma: e.target.value })}
-                >
-                  <option value="cuadro">Cuadrada / Rectangular</option>
-                  <option value="circulo">Circular</option>
-                </select>
+                <Label>Forma</Label>
+                <Select value={newMesaForm.forma} onValueChange={handleNewFormaChange}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="cuadro">Cuadrada / Rectangular</SelectItem>
+                    <SelectItem value="circulo">Circular</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </div>
             <div>
-              <label className="text-sm font-medium">Zona / Área</label>
-              <input
-                type="text"
+              <Label>Zona / Área</Label>
+              <Input
                 placeholder="Ej. Salón principal, Barra, Terraza"
-                className="w-full mt-1 p-2 rounded-md border bg-background text-sm"
                 value={newMesaForm.zona}
                 onChange={(e) => setNewMesaForm({ ...newMesaForm, zona: e.target.value })}
               />
@@ -231,6 +301,63 @@ export function TablesMap() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setOpenNewMesa(false)}>Cancelar</Button>
             <Button onClick={handleCreateMesa}>Crear mesa</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog Editar Mesa */}
+      <Dialog open={openEditMesa} onOpenChange={setOpenEditMesa}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Editar mesa</DialogTitle>
+            <DialogDescription>Actualiza los datos de la mesa</DialogDescription>
+          </DialogHeader>
+          {editingMesa && (
+            <div className="space-y-4">
+              <div>
+                <Label>Nombre de la mesa *</Label>
+                <Input
+                  placeholder="Ej. Mesa 7"
+                  value={editingMesa.nombre}
+                  onChange={(e) => setEditingMesa({ ...editingMesa, nombre: e.target.value })}
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label>Asientos</Label>
+                  <Input
+                    type="number"
+                    min="1"
+                    value={editingMesa.asientos}
+                    onChange={(e) => setEditingMesa({ ...editingMesa, asientos: Number(e.target.value) || 2 })}
+                  />
+                </div>
+                <div>
+                  <Label>Forma</Label>
+                  <Select value={editingMesa.forma} onValueChange={handleEditFormaChange}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="cuadro">Cuadrada / Rectangular</SelectItem>
+                      <SelectItem value="circulo">Circular</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div>
+                <Label>Zona / Área</Label>
+                <Input
+                  placeholder="Ej. Salón principal, Barra, Terraza"
+                  value={editingMesa.zona || ''}
+                  onChange={(e) => setEditingMesa({ ...editingMesa, zona: e.target.value })}
+                />
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOpenEditMesa(false)}>Cancelar</Button>
+            <Button onClick={handleUpdateMesa}>Guardar cambios</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -266,27 +393,49 @@ export function TablesMap() {
                   </span>
                   <span className="font-medium">{estadoLabel[selected.estado]}</span>
                 </div>
+                <div className="flex items-center justify-between rounded-lg bg-muted/50 px-3 py-2.5">
+                  <span className="flex items-center gap-2 text-muted-foreground">
+                    <Armchair className="size-4" /> Zona
+                  </span>
+                  <span className="font-medium">{selected.zona || 'Sin zona'}</span>
+                </div>
               </div>
 
-              <DialogFooter className="flex flex-wrap gap-2">
-                <Button variant="outline" onClick={() => setSelected(null)}>
-                  Cerrar
-                </Button>
-                {selected.estado === 'libre' && (
-                  <Button onClick={() => handleUpdateEstado(selected.id, 'ocupada')}>
-                    Abrir mesa
+              <DialogFooter className="flex flex-wrap gap-2 justify-between">
+                <div className="flex gap-2">
+                  <Button variant="outline" size="sm" onClick={() => {
+                    setEditingMesa(selected)
+                    setOpenEditMesa(true)
+                    setSelected(null)
+                  }}>
+                    <Edit2 className="size-4 mr-2" />
+                    Editar
                   </Button>
-                )}
-                {selected.estado === 'ocupada' && (
-                  <Button onClick={() => handleUpdateEstado(selected.id, 'cuenta')}>
-                    Pedir cuenta
+                  <Button variant="destructive" size="sm" onClick={() => {
+                    handleDeleteMesa(selected.id, selected.nombre)
+                  }}>
+                    <Trash2 className="size-4 mr-2" />
+                    Eliminar
                   </Button>
-                )}
-                {selected.estado !== 'libre' && selected.estado !== 'reservada' && (
-                  <Button variant="secondary" onClick={() => handleUpdateEstado(selected.id, 'libre')}>
-                    Liberar mesa
-                  </Button>
-                )}
+                </div>
+                <div className="flex gap-2">
+                  <Button variant="outline" onClick={() => setSelected(null)}>Cerrar</Button>
+                  {selected.estado === 'libre' && (
+                    <Button onClick={() => handleUpdateEstado(selected.id, 'ocupada')}>
+                      Abrir mesa
+                    </Button>
+                  )}
+                  {selected.estado === 'ocupada' && (
+                    <Button onClick={() => handleUpdateEstado(selected.id, 'cuenta')}>
+                      Pedir cuenta
+                    </Button>
+                  )}
+                  {selected.estado !== 'libre' && selected.estado !== 'reservada' && (
+                    <Button variant="secondary" onClick={() => handleUpdateEstado(selected.id, 'libre')}>
+                      Liberar mesa
+                    </Button>
+                  )}
+                </div>
               </DialogFooter>
             </>
           )}

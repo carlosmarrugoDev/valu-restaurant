@@ -13,10 +13,12 @@ import {
   Users,
   Settings,
   Wallet,
+  QrCode,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
 import { Employees } from './employees'
+import { ClientMode } from './client-mode'
 import { type ModuleId, type Role, ROLE_ACCESS } from '@/lib/data'
 import { Sidebar } from './sidebar'
 import { Topbar } from './topbar'
@@ -30,6 +32,7 @@ import { Inventory } from './inventory'
 import { CashRegister } from './cash-register'
 import { SimpleModule } from './simple-module'
 import { ProductManager } from '@/components/products/product-manager'
+import { QRManager } from './qr-manager'
 import { useAuth } from '@/components/auth/auth-context'
 
 export type NavItem = {
@@ -49,6 +52,7 @@ export const NAV_ITEMS: NavItem[] = [
   { id: 'reportes', label: 'Reportes', icon: ChartColumnBig },
   { id: 'inventario', label: 'Inventario', icon: Boxes },
   { id: 'personal', label: 'Personal', icon: Users },
+  { id: 'qr', label: 'Código QR', icon: QrCode },
   { id: 'configuracion', label: 'Configuración', icon: Settings },
 ]
 
@@ -118,6 +122,7 @@ export function AppShell() {
             {currentActive === 'reportes' && <Reports />}
             {currentActive === 'inventario' && <Inventory />}
             {currentActive === 'personal' && <Employees />}
+            {currentActive === 'qr' && <QRManager />}
             {currentActive === 'configuracion' && (
               <SimpleModule
                 title="Configuración"
