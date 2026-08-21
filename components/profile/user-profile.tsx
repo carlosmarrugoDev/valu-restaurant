@@ -25,7 +25,8 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Progress } from '@/components/ui/progress'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { useAuth, User as UserType } from '@/components/auth/auth-context'
-import { currency } from '@/lib/utils'
+//import { currency } from '@/lib/utils'
+import { currency } from '@/lib/data'
 import { cn } from '@/lib/utils'
 
 export function UserProfile() {

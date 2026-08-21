@@ -3,6 +3,7 @@ import { supabase } from './supabase'
 import jwt from 'jsonwebtoken'
 import bcrypt from 'bcryptjs'
 import { NextResponse } from 'next/server'
+import { Permiso, tienePermiso } from './permissions'
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-key'
 export const TOKEN_COOKIE_NAME = 'auth_token'
@@ -103,4 +104,27 @@ export const PLAN_LIMITS: Record<string, { maxMesas: number; maxUsuarios: number
   'arranque': { maxMesas: 10, maxUsuarios: 3, maxProductos: 50 },
   'profesional': { maxMesas: 50, maxUsuarios: 15, maxProductos: Infinity },
   'multi-sede': { maxMesas: Infinity, maxUsuarios: Infinity, maxProductos: Infinity },
+}
+
+export function requirePermission(
+  req: Request,
+  permiso: Permiso
+): 
+  | { user: AuthUser; error: null }
+  | { user: null; error: NextResponse } {
+  
+  const auth = requireTenantAuth(req)
+  if (auth.error) return { user: null, error: auth.error }
+  
+  if (!tienePermiso(auth.user.rol, permiso)) {
+    return {
+      user: null,
+      error: NextResponse.json(
+        { error: 'No tienes permiso para realizar esta acción' },
+        { status: 403 }
+      )
+    }
+  }
+  
+  return { user: auth.user, error: null }
 }

@@ -12,10 +12,11 @@ import {
   Boxes,
   Users,
   Settings,
-  Wallet, // Cambiado de CashRegister a Wallet
+  Wallet,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
+import { Employees } from './employees'
 import { type ModuleId, type Role, ROLE_ACCESS } from '@/lib/data'
 import { Sidebar } from './sidebar'
 import { Topbar } from './topbar'
@@ -43,7 +44,7 @@ export const NAV_ITEMS: NavItem[] = [
   { id: 'pedidos', label: 'Pedidos', icon: ClipboardList },
   { id: 'cocina', label: 'Cocina', icon: ChefHat },
   { id: 'cobro', label: 'Cobro', icon: Receipt },
-  { id: 'caja', label: 'Caja', icon: Wallet }, // Cambiado a Wallet
+  { id: 'caja', label: 'Caja', icon: Wallet },
   { id: 'productos', label: 'Productos', icon: Package },
   { id: 'reportes', label: 'Reportes', icon: ChartColumnBig },
   { id: 'inventario', label: 'Inventario', icon: Boxes },
@@ -116,12 +117,7 @@ export function AppShell() {
             {currentActive === 'productos' && <ProductManager />}
             {currentActive === 'reportes' && <Reports />}
             {currentActive === 'inventario' && <Inventory />}
-            {currentActive === 'personal' && (
-              <SimpleModule
-                title="Personal"
-                description="Gestión de empleados, roles, turnos y asistencia. Módulo de demostración."
-              />
-            )}
+            {currentActive === 'personal' && <Employees />}
             {currentActive === 'configuracion' && (
               <SimpleModule
                 title="Configuración"

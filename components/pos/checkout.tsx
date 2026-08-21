@@ -1,10 +1,10 @@
-// components/pos/checkout.tsx - VERSIÓN CONECTADA CON TOAST
+// components/pos/checkout.tsx - VERSIÓN CONECTADA CON SPLIT
 'use client'
 
 import { useState, useEffect, useMemo } from 'react'
 import {
   Banknote, CreditCard, Smartphone,
-  Printer, Send, Users, Split, Receipt, Loader2,
+  Printer, Send, Receipt, Loader2, CheckCircle, Users,
 } from 'lucide-react'
 
 import { currencyDetailed } from '@/lib/data'
@@ -18,6 +18,7 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
+import { Badge } from '@/components/ui/badge'
 import { useAuth } from '@/components/auth/auth-context'
 import { toast } from 'sonner'
 
@@ -35,9 +36,8 @@ export function Checkout() {
   const [pedidos, setPedidos] = useState<any[]>([])
   const [pedidoSeleccionado, setPedidoSeleccionado] = useState<any | null>(null)
   const [loading, setLoading] = useState(true)
-  const [split, setSplit] = useState('none')
-  const [personas, setPersonas] = useState(2)
-  const [propina, setPropina] = useState(15)
+  const [personas, setPersonas] = useState(1)
+  const [propina, setPropina] = useState(10)
   const [metodo, setMetodo] = useState('tarjeta')
   const [procesando, setProcesando] = useState(false)
 
@@ -48,7 +48,7 @@ export function Checkout() {
   const loadPedidos = async () => {
     setLoading(true)
     try {
-      const res = await fetch('/api/pedidos?activos=true')
+      const res = await fetch('/api/pedidos?estado=listo')
       const data = await res.json()
       if (res.ok) {
         setPedidos(data.pedidos || [])
@@ -78,9 +78,15 @@ export function Checkout() {
       })
       const data = await res.json()
       if (res.ok) {
-        toast.success(`Pedido cobrado: ${currencyDetailed(total)}`)
+        toast.success(`✅ Pedido cobrado: ${currencyDetailed(total)}`, {
+          duration: 4000,
+        })
+        toast.info('🔄 Mesa liberada automáticamente', {
+          duration: 3000,
+        })
         await loadPedidos()
         setPedidoSeleccionado(null)
+        setPersonas(1)
       } else {
         toast.error(data.error || 'Error al cobrar')
       }
@@ -92,13 +98,20 @@ export function Checkout() {
   }
 
   const items = pedidoSeleccionado?.items || []
-  const { subtotal, impuestos, propinaMonto, total } = useMemo(() => {
+  const { subtotal, impuestos, propinaMonto, total, porPersona } = useMemo(() => {
     const subtotal = items.reduce((s: number, i: any) => s + i.precio_unitario * i.cantidad, 0)
     const impuestos = subtotal * IVA
     const base = subtotal + impuestos
     const propinaMonto = base * (propina / 100)
-    return { subtotal, impuestos, propinaMonto, total: base + propinaMonto }
-  }, [items, propina])
+    const total = base + propinaMonto
+    return { 
+      subtotal, 
+      impuestos, 
+      propinaMonto, 
+      total,
+      porPersona: total / (personas > 0 ? personas : 1)
+    }
+  }, [items, propina, personas])
 
   if (loading) {
     return (
@@ -112,21 +125,39 @@ export function Checkout() {
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_380px]">
       {/* Selección de pedido */}
       <div className="space-y-4">
-        <div className="flex flex-wrap gap-2">
-          {pedidos.map((p) => (
-            <Button
-              key={p.id}
-              variant={pedidoSeleccionado?.id === p.id ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setPedidoSeleccionado(p)}
-            >
-              Mesa {p.mesa_nombre || p.mesa_id} · #{p.numero_pedido}
-            </Button>
-          ))}
-          {pedidos.length === 0 && (
-            <p className="text-muted-foreground">No hay pedidos para cobrar</p>
-          )}
+        <div className="flex items-center justify-between">
+          <h2 className="font-semibold text-lg">Pedidos listos para cobrar</h2>
+          <Badge variant="outline" className="text-sm">
+            {pedidos.length} pendientes
+          </Badge>
         </div>
+
+        {pedidos.length === 0 ? (
+          <Card>
+            <CardContent className="py-12 text-center">
+              <CheckCircle className="size-12 mx-auto text-status-free mb-4" />
+              <p className="text-muted-foreground font-medium">No hay pedidos listos</p>
+              <p className="text-sm text-muted-foreground">Espera a que la cocina prepare los pedidos</p>
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {pedidos.map((p) => (
+              <Button
+                key={p.id}
+                variant={pedidoSeleccionado?.id === p.id ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setPedidoSeleccionado(p)}
+                className="gap-2"
+              >
+                {p.mesa_nombre || `Mesa #${p.mesa_id}`}
+                <Badge variant="secondary" className="text-[10px]">
+                  ${p.total?.toFixed(0) || 0}
+                </Badge>
+              </Button>
+            ))}
+          </div>
+        )}
 
         {pedidoSeleccionado && (
           <Card>
@@ -137,6 +168,9 @@ export function Checkout() {
               </CardTitle>
               <CardDescription>
                 {items.length} ítems · Mesero: {pedidoSeleccionado.mesero_nombre || '—'}
+                <Badge variant="secondary" className="ml-2 text-xs">
+                  ✅ Listo para cobrar
+                </Badge>
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -176,9 +210,10 @@ export function Checkout() {
         <Card>
           <CardHeader>
             <CardTitle>Pago</CardTitle>
-            <CardDescription>Selecciona propina y método</CardDescription>
+            <CardDescription>Selecciona propina y método de pago</CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
+            {/* Propina */}
             <div className="flex flex-col gap-2">
               <p className="text-sm font-medium">Propina</p>
               <ToggleGroup
@@ -195,6 +230,37 @@ export function Checkout() {
               </ToggleGroup>
             </div>
 
+            {/* Dividir cuenta */}
+            <div className="flex flex-col gap-2">
+              <p className="text-sm font-medium flex items-center gap-2">
+                <Users className="size-4" />
+                Dividir cuenta
+              </p>
+              <div className="flex items-center gap-3">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPersonas(Math.max(1, personas - 1))}
+                >
+                  -
+                </Button>
+                <span className="font-medium tabular-nums w-8 text-center">{personas}</span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPersonas(personas + 1)}
+                >
+                  +
+                </Button>
+                {personas > 1 && (
+                  <span className="text-sm text-muted-foreground ml-2">
+                    = {currencyDetailed(porPersona)} c/u
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* Totales */}
             <div className="flex flex-col gap-1.5 rounded-lg bg-muted/50 p-4 text-sm">
               <div className="flex justify-between text-muted-foreground">
                 <span>Subtotal</span>
@@ -213,8 +279,15 @@ export function Checkout() {
                 <span>Total</span>
                 <span className="tabular-nums text-primary">{currencyDetailed(total)}</span>
               </div>
+              {personas > 1 && (
+                <div className="flex justify-between text-xs text-muted-foreground">
+                  <span>Por persona</span>
+                  <span className="tabular-nums font-medium">{currencyDetailed(porPersona)}</span>
+                </div>
+              )}
             </div>
 
+            {/* Método de pago */}
             <div className="flex flex-col gap-2">
               <p className="text-sm font-medium">Método de pago</p>
               <div className="grid grid-cols-3 gap-2">
@@ -241,6 +314,7 @@ export function Checkout() {
               </div>
             </div>
 
+            {/* Botones */}
             <div className="flex flex-col gap-2">
               <Button
                 size="lg"
@@ -253,15 +327,21 @@ export function Checkout() {
               </Button>
               <div className="grid grid-cols-2 gap-2">
                 <Button variant="outline" disabled>
-                  <Printer data-icon="inline-start" />
+                  <Printer className="size-4 mr-2" />
                   Imprimir
                 </Button>
                 <Button variant="outline" disabled>
-                  <Send data-icon="inline-start" />
+                  <Send className="size-4 mr-2" />
                   Enviar
                 </Button>
               </div>
             </div>
+
+            {pedidoSeleccionado && (
+              <p className="text-xs text-center text-muted-foreground">
+                Al cobrar, la mesa se liberará automáticamente
+              </p>
+            )}
           </CardContent>
         </Card>
       </div>
