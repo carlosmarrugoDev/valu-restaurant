@@ -175,6 +175,14 @@ export async function PATCH(req: NextRequest) {
     const totalContado = efectivoContado + tarjetaContado + digitalContado
     const diferencia = totalContado - totalEsperado
 
+    // Obtener umbral configurado
+    const tenantResult = await query(
+      `SELECT umbral_diferencia_caja FROM tenants WHERE id = $1`,
+      [tenantId]
+    )
+    const umbral = tenantResult.rows[0]?.umbral_diferencia_caja || 10
+    const diferenciaSuperaUmbral = Math.abs(diferencia) > umbral
+
     const result = await query(
       `UPDATE cierres_caja
        SET efectivo = $1,
@@ -183,10 +191,11 @@ export async function PATCH(req: NextRequest) {
            total_esperado = $4,
            total_contado = $5,
            diferencia = $6,
-           notas = $7,
+           diferencia_supera_umbral = $7,
+           notas = $8,
            abierto = FALSE,
            hora_cierre = CURRENT_TIMESTAMP
-       WHERE id = $8 AND tenant_id = $9
+       WHERE id = $9 AND tenant_id = $10
        RETURNING *`,
       [
         efectivoContado,
@@ -195,6 +204,7 @@ export async function PATCH(req: NextRequest) {
         totalEsperado,
         totalContado,
         diferencia,
+        diferenciaSuperaUmbral,
         notas || null,
         id,
         tenantId,
@@ -212,6 +222,8 @@ export async function PATCH(req: NextRequest) {
         ventas_mixto: totalMixto,
         total_efectivo_esperado: totalEfectivoEsperado,
       },
+      diferencia_supera_umbral: diferenciaSuperaUmbral,
+      umbral_configurado: umbral,
     })
   } catch (error: any) {
     console.error('PATCH caja error:', error)

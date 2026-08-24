@@ -1,7 +1,9 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { Clock, Check, CircleCheckBig, ChefHat, Loader2, Bell, Send, Edit2, X } from 'lucide-react'
+import {
+  Clock, Check, CircleCheckBig, ChefHat, Loader2, Bell, Send, Edit2, X, RefreshCw
+} from 'lucide-react'  // ← Agregar RefreshCw aquí
 
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -38,10 +40,8 @@ export function Kitchen() {
   const [pedidos, setPedidos] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [tiempos, setTiempos] = useState<Record<string, number>>({})
   const intervalRef = useRef<NodeJS.Timeout | null>(null)
   
-  // Editar tiempo estimado
   const [openTiempoDialog, setOpenTiempoDialog] = useState(false)
   const [pedidoEditando, setPedidoEditando] = useState<any | null>(null)
   const [tiempoEstimado, setTiempoEstimado] = useState<number>(10)
@@ -140,7 +140,6 @@ export function Kitchen() {
     }
   }
 
-  // NUEVO: Marcar como entregado (pagado)
   const marcarEntregado = async (pedidoId: string) => {
     try {
       const res = await fetch(`/api/pedidos?id=${pedidoId}`, {
@@ -162,7 +161,6 @@ export function Kitchen() {
     }
   }
 
-  // NUEVO: Editar tiempo estimado
   const abrirEditarTiempo = (pedido: any) => {
     setPedidoEditando(pedido)
     setTiempoEstimado(pedido.tiempo_estimado || 10)
@@ -211,7 +209,6 @@ export function Kitchen() {
     )
   }
 
-  // Pedidos activos: en_cocina y listo
   const pedidosActivos = pedidos.filter(p => 
     p.estado === 'en_cocina' || p.estado === 'listo'
   )
@@ -305,6 +302,7 @@ export function Kitchen() {
                   <div className="flex items-center justify-between">
                     <span className={cn(
                       'rounded-full px-2.5 py-0.5 text-xs font-semibold',
+                      pedido.estado === 'listo' ? 'bg-status-free/25 text-status-free' :
                       todosListos ? 'bg-status-free/25 text-status-free' :
                       enProgreso ? 'bg-status-bill/25 text-status-bill' :
                       'bg-primary/25 text-primary',
@@ -406,7 +404,6 @@ export function Kitchen() {
         </div>
       )}
 
-      {/* Dialog Editar Tiempo Estimado */}
       <Dialog open={openTiempoDialog} onOpenChange={setOpenTiempoDialog}>
         <DialogContent className="max-w-sm">
           <DialogHeader>

@@ -2,6 +2,7 @@
 import { NextResponse, NextRequest } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { requireTenantAuth } from '@/lib/auth'
+import { descontarInsumosPorPedido, revertirDescuentoInsumos } from '@/lib/inventario'
 
 const IVA = 0.16
 
@@ -34,7 +35,6 @@ export async function GET(req: NextRequest) {
 
     const { data: pedidos } = await query.order('fecha_creacion', { ascending: false })
 
-    // Obtener items para cada pedido
     const pedidosConItems = await Promise.all((pedidos || []).map(async (p) => {
       const { data: items } = await supabase
         .from('pedido_items')
@@ -63,7 +63,7 @@ export async function POST(req: NextRequest) {
     if (error) return error
 
     const body = await req.json()
-    const { mesa_id, items, mesero_id, notas } = body
+    const { mesa_id, items, mesero_id, notas, es_qr } = body
 
     if (!items || !Array.isArray(items) || items.length === 0) {
       return NextResponse.json({ error: 'Items requeridos' }, { status: 400 })
@@ -73,7 +73,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Mesa requerida' }, { status: 400 })
     }
 
-    // Verificar que la mesa existe
     const { data: mesa } = await supabase
       .from('mesas')
       .select('id')
@@ -85,7 +84,32 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Mesa no encontrada' }, { status: 404 })
     }
 
-    // Calcular subtotal
+    // Verificar si el tenant tiene QR directo o necesita confirmación
+    const { data: tenant } = await supabase
+      .from('tenants')
+      .select('qr_confirmacion_directa')
+      .eq('id', user.tenantId)
+      .single()
+
+    const estadoInicial = (es_qr && !tenant?.qr_confirmacion_directa) 
+      ? 'pendiente_confirmacion' 
+      : 'en_cocina'
+
+    let meseroAsignado = mesero_id || user.userId
+    if (es_qr && estadoInicial === 'pendiente_confirmacion') {
+      const { data: asignacion } = await supabase
+        .from('asignaciones_mesa')
+        .select('usuario_id')
+        .eq('mesa_id', mesa_id)
+        .eq('activa', true)
+        .eq('tenant_id', user.tenantId)
+        .single()
+
+      if (asignacion) {
+        meseroAsignado = asignacion.usuario_id
+      }
+    }
+
     let subtotal = 0
     const itemsData: any[] = []
 
@@ -104,7 +128,7 @@ export async function POST(req: NextRequest) {
         )
       }
 
-      // Verificar stock
+      // Verificar stock de producto directo
       if (producto.stock !== null && producto.stock < (item.cantidad || 1)) {
         return NextResponse.json(
           { error: `Stock insuficiente para ${producto.nombre}. Disponible: ${producto.stock}` },
@@ -131,7 +155,7 @@ export async function POST(req: NextRequest) {
     const impuestos = subtotal * IVA
     const total = subtotal + impuestos
 
-    // Crear pedido directamente en estado en_cocina
+    // Crear pedido
     const { data: pedido, error: pedidoError } = await supabase
       .from('pedidos')
       .insert({
@@ -139,20 +163,21 @@ export async function POST(req: NextRequest) {
         sucursal_id: user.sucursalId,
         mesa_id: mesa_id,
         usuario_id: user.userId,
-        mesero_id: mesero_id || user.userId,
+        mesero_id: meseroAsignado,
         subtotal: subtotal,
         impuestos: impuestos,
         total: total,
-        estado: 'en_cocina',
+        estado: estadoInicial,
         notas: notas || null,
         hora_apertura: new Date().toISOString(),
+        es_qr: es_qr || false,
+        tiempo_estimado: 10,
       })
       .select()
       .single()
 
     if (pedidoError) throw pedidoError
 
-    // Crear items
     const itemsConPedido = itemsData.map(item => ({
       ...item,
       pedido_id: pedido.id,
@@ -163,7 +188,28 @@ export async function POST(req: NextRequest) {
       .insert(itemsConPedido)
       .select()
 
-    // Actualizar estado de la mesa a ocupada
+    // Si es confirmación directa o es mesero, descontar insumos
+    if (estadoInicial === 'en_cocina') {
+      const resultadoDescuento = await descontarInsumosPorPedido(
+        user.tenantId!,
+        user.userId,
+        pedido.id,
+        items.map((item: any) => ({
+          producto_id: item.producto_id,
+          cantidad: item.cantidad || 1,
+        }))
+      )
+
+      if (!resultadoDescuento.success) {
+        // Revertir pedido si falla el descuento
+        await supabase.from('pedidos').delete().eq('id', pedido.id)
+        return NextResponse.json(
+          { error: `No hay suficientes insumos: ${resultadoDescuento.error}` },
+          { status: 409 }
+        )
+      }
+    }
+
     await supabase
       .from('mesas')
       .update({ estado: 'ocupada', fecha_actualizacion: new Date().toISOString() })
@@ -177,7 +223,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 }
-// En el PATCH, agregar estos estados
 
 export async function PATCH(req: NextRequest) {
   try {
@@ -199,7 +244,7 @@ export async function PATCH(req: NextRequest) {
 
     const { data: pedidoActual } = await supabase
       .from('pedidos')
-      .select('*')
+      .select('*, pedido_items(*)')
       .eq('id', id)
       .eq('tenant_id', user.tenantId)
       .single()
@@ -223,23 +268,72 @@ export async function PATCH(req: NextRequest) {
       updates.hora_cierre = new Date().toISOString()
     }
 
-    // Si se cobra, actualizar items a listo y descontar inventario
+    // Si se cobra, descontar insumos (si no se hizo antes)
     if (estado === 'pagado') {
       await supabase
         .from('pedido_items')
         .update({ estado: 'listo' })
         .eq('pedido_id', id)
 
-      // ... resto de la lógica de descuento de inventario
+      // Solo descontar si no se descontó antes (para pedidos QR confirmados)
+      if (pedidoActual.estado === 'pendiente_confirmacion') {
+        const items = pedidoActual.pedido_items || []
+        await descontarInsumosPorPedido(
+          user.tenantId!,
+          user.userId,
+          id,
+          items.map((item: any) => ({
+            producto_id: item.producto_id,
+            cantidad: item.cantidad,
+          }))
+        )
+      }
     }
 
-    // Si se envía a cocina
-    if (estado === 'en_cocina') {
+    // Cancelar pedido con reversión de insumos
+    if (estado === 'cancelado' && pedidoActual.estado !== 'cancelado') {
+      const items = pedidoActual.pedido_items || []
+      const resultado = await revertirDescuentoInsumos(
+        user.tenantId!,
+        user.userId,
+        id,
+        items.map((item: any) => ({
+          producto_id: item.producto_id,
+          cantidad: item.cantidad,
+        }))
+      )
+
+      if (!resultado.success) {
+        return NextResponse.json({ error: resultado.error }, { status: 400 })
+      }
+      updates.motivo_cancelacion = body.motivo || 'Cancelado por usuario'
+    }
+
+    // Si se envía a cocina (confirmación QR)
+    if (estado === 'en_cocina' && pedidoActual.estado === 'pendiente_confirmacion') {
+      // Descontar insumos al confirmar
+      const items = pedidoActual.pedido_items || []
+      const resultado = await descontarInsumosPorPedido(
+        user.tenantId!,
+        user.userId,
+        id,
+        items.map((item: any) => ({
+          producto_id: item.producto_id,
+          cantidad: item.cantidad,
+        }))
+      )
+
+      if (!resultado.success) {
+        return NextResponse.json(
+          { error: `No hay suficientes insumos: ${resultado.error}` },
+          { status: 409 }
+        )
+      }
+
       await supabase
         .from('pedido_items')
         .update({ estado: 'en_cocina' })
         .eq('pedido_id', id)
-        .eq('estado', 'pendiente')
     }
 
     const { data: pedido, error: updateError } = await supabase
@@ -252,7 +346,6 @@ export async function PATCH(req: NextRequest) {
 
     if (updateError) throw updateError
 
-    // Si el pedido se paga o cancela, liberar mesa
     if (['pagado', 'cancelado'].includes(estado) && pedidoActual.mesa_id) {
       await supabase
         .from('mesas')

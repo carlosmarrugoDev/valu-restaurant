@@ -263,6 +263,19 @@ export function ProductManager() {
     URL.revokeObjectURL(url)
   }
 
+  // Manejadores para Select (corregir error de tipo)
+  const handleCategoriaChange = (value: string) => {
+    setFiltroCategoria(value)
+  }
+
+  const handleFormCategoriaChange = (value: string) => {
+    setForm({ ...form, categoria_id: value === 'none' ? '' : value })
+  }
+
+  const handleDisponibleChange = (value: string) => {
+    setForm({ ...form, disponible: value === 'si' })
+  }
+
   const stats = {
     total: productos.length,
     conStock: productos.filter((p) => p.stock > 0).length,
@@ -312,7 +325,7 @@ export function ProductManager() {
           <FileSpreadsheet />
           <AlertTitle>{importStatus.loading ? 'Importando Excel...' : 'Resultado de importación'}</AlertTitle>
           <AlertDescription className="space-y-2">
-            {importStatus.loading && <Progress value={importStatus.progress} />}
+            {importStatus.loading && <Progress value={importStatus.progress ?? 0} />}
             <p>{importStatus.message}</p>
             {!importStatus.loading && (
               <div className="flex gap-2 mt-2">
@@ -362,7 +375,7 @@ export function ProductManager() {
               <CardDescription>{filtered.length} resultados</CardDescription>
             </div>
             <div className="flex flex-wrap gap-2 items-center">
-              <Select value={filtroCategoria} onValueChange={setFiltroCategoria}>
+              <Select value={filtroCategoria} onValueChange={handleCategoriaChange}>
                 <SelectTrigger className="w-44">
                   <SelectValue placeholder="Categoría" />
                 </SelectTrigger>
@@ -505,7 +518,7 @@ export function ProductManager() {
               </div>
               <div className="space-y-2">
                 <Label>Categoría</Label>
-                <Select value={form.categoria_id || 'none'} onValueChange={(v) => setForm({ ...form, categoria_id: v === 'none' ? '' : v })}>
+                <Select value={form.categoria_id || 'none'} onValueChange={handleFormCategoriaChange}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -530,7 +543,7 @@ export function ProductManager() {
               </div>
               <div className="space-y-2">
                 <Label>Estado</Label>
-                <Select value={form.disponible ? 'si' : 'no'} onValueChange={(v) => setForm({ ...form, disponible: v === 'si' })}>
+                <Select value={form.disponible ? 'si' : 'no'} onValueChange={handleDisponibleChange}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
