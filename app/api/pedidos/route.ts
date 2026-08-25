@@ -347,10 +347,18 @@ export async function PATCH(req: NextRequest) {
     if (updateError) throw updateError
 
     if (['pagado', 'cancelado'].includes(estado) && pedidoActual.mesa_id) {
+      // Liberar mesa
       await supabase
         .from('mesas')
         .update({ estado: 'libre', mesero_id: null, fecha_actualizacion: new Date().toISOString() })
         .eq('id', pedidoActual.mesa_id)
+      
+      // Desactivar asignación de mesero
+      await supabase
+        .from('asignaciones_mesa')
+        .update({ activa: false })
+        .eq('mesa_id', pedidoActual.mesa_id)
+        .eq('tenant_id', user.tenantId)
     }
 
     return NextResponse.json({ success: true, pedido })

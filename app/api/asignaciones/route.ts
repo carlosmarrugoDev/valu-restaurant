@@ -52,6 +52,13 @@ export async function POST(req: NextRequest) {
       .eq('mesa_id', mesa_id)
       .eq('tenant_id', user.tenantId)
 
+    // También actualizar el mesero_id en la tabla mesas para compatibilidad
+    await supabase
+      .from('mesas')
+      .update({ mesero_id: usuario_id })
+      .eq('id', mesa_id)
+      .eq('tenant_id', user.tenantId)
+
     const { data: asignacion, error: createError } = await supabase
       .from('asignaciones_mesa')
       .insert({
@@ -94,6 +101,21 @@ export async function PATCH(req: NextRequest) {
       .single()
 
     if (updateError) throw updateError
+
+    // Si se desactiva, limpiar también la tabla mesas
+    if (activa === false && asignacion) {
+      await supabase
+        .from('mesas')
+        .update({ mesero_id: null })
+        .eq('id', asignacion.mesa_id)
+        .eq('tenant_id', user.tenantId)
+    } else if (activa === true && asignacion) {
+      await supabase
+        .from('mesas')
+        .update({ mesero_id: asignacion.usuario_id })
+        .eq('id', asignacion.mesa_id)
+        .eq('tenant_id', user.tenantId)
+    }
 
     return NextResponse.json({ success: true, asignacion })
   } catch (error: any) {

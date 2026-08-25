@@ -710,6 +710,11 @@ function ClientPageContent() {
                       {p.descripcion}
                     </p>
                   )}
+                  {p.disponible && p.stock_calculado > 0 && p.stock_calculado <= 10 && (
+                    <p className="text-[10px] text-orange-600 font-medium mt-1">
+                      ⚠️ ¡Solo quedan {p.stock_calculado}!
+                    </p>
+                  )}
                   <div className="flex items-center justify-between mt-2">
                     <span className="font-bold text-primary">
                       ${p.precio?.toFixed(2) || "0.00"}

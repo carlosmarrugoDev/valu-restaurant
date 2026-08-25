@@ -367,6 +367,11 @@ export function OrderTaking() {
                           <p className="text-sm font-medium leading-snug text-balance">
                             {p.nombre}
                           </p>
+                          {p.stock_calculado !== undefined && p.stock_calculado > 0 && p.stock_calculado <= 10 && (
+                            <p className="text-[10px] text-orange-600 font-medium">
+                              ⚠️ Quedan {p.stock_calculado}
+                            </p>
+                          )}
                           <div className="mt-2 flex items-center justify-between gap-2">
                             <span className="font-display font-semibold text-primary">
                               {currencyDetailed(p.precio)}
