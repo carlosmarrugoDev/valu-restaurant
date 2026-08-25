@@ -52,7 +52,7 @@ export function Topbar({ title, role, onRoleChange, onMenuClick }: TopbarProps) 
       <div className="flex items-center gap-3">
         <div className="hidden items-center gap-2 sm:flex">
           <span className="text-xs text-muted-foreground">Rol:</span>
-          <Select value={role} onValueChange={(v) => onRoleChange(v as Role)}>
+          <Select value={role} onValueChange={(v) => v && onRoleChange(v as Role)}>
             <SelectTrigger className="w-[132px]">
               <SelectValue />
             </SelectTrigger>

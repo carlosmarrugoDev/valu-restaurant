@@ -695,7 +695,7 @@ function ClientPageContent() {
                   ) : (
                     <span className="text-4xl opacity-20">🍽️</span>
                   )}
-                  {p.stock === 0 && (
+                  {(!p.disponible || p.stock_calculado === 0) && (
                     <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
                       <span className="bg-destructive text-white px-3 py-1 rounded-full text-xs font-bold">
                         Agotado
@@ -716,7 +716,7 @@ function ClientPageContent() {
                     </span>
                     <button
                       onClick={() => addToCart(p)}
-                      disabled={!mesaId || p.stock === 0}
+                      disabled={!mesaId || !p.disponible || p.stock_calculado === 0}
                       className="bg-primary text-primary-foreground w-8 h-8 rounded-full flex items-center justify-center hover:bg-primary/90 disabled:opacity-50 transition-colors"
                     >
                       +

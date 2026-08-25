@@ -25,17 +25,8 @@ export function QRManager() {
 
   useEffect(() => {
     loadMesas()
-    // Usar variable de entorno o fallback a la URL actual
-    if (typeof window !== 'undefined') {
-      // Priorizar variable de entorno, luego la URL actual
-      const envUrl = process.env.NEXT_PUBLIC_APP_URL
-      if (envUrl) {
-        setBaseUrl(envUrl)
-      } else {
-        // En producción, usar window.location.origin
-        setBaseUrl(window.location.origin)
-      }
-    }
+    // Usar el dominio real configurado
+    setBaseUrl('https://valu-restaurant.vercel.app')
   }, [user])
 
   const loadMesas = async () => {
@@ -141,11 +132,11 @@ export function QRManager() {
   }
 
   const mesaActual = mesas.find(m => m.id === mesaSeleccionada)
-
-  const handleMesaChange = (value: string) => {
-    setMesaSeleccionada(value)
+  
+  const handleMesaChange = (value: string | null) => {
+    if (value) setMesaSeleccionada(value)
   }
-
+  
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-center justify-between gap-4">

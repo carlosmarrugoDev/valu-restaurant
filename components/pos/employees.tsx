@@ -269,7 +269,7 @@ export function Employees() {
               </div>
               <div className="space-y-2">
                 <Label>Rol *</Label>
-                <Select value={form.rol} onValueChange={(v) => setForm({ ...form, rol: v as Rol })}>
+                <Select value={form.rol} onValueChange={(v) => v && setForm({ ...form, rol: v as Rol })}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>

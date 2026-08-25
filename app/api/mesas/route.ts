@@ -8,23 +8,40 @@ export async function GET(req: NextRequest) {
     const { user, error } = requireTenantAuth(req)
     if (error) return error
 
-    const { data: mesas } = await supabase
+    const { data: mesas, error: queryError } = await supabase
       .from('mesas')
       .select(`
         *,
-        usuarios!mesero_id (nombre)
+        asignaciones_mesa!left (
+          activa,
+          usuario_id,
+          usuarios!asignaciones_mesa_usuario_id_fkey (id, nombre, email, rol)
+        )
       `)
       .eq('tenant_id', user.tenantId)
       .order('orden', { ascending: true })
 
-    const formatted = mesas?.map(m => ({
-      ...m,
-      mesero_nombre: m.usuarios?.nombre || null,
-      usuarios: undefined
-    })) || []
+    if (queryError) throw queryError
+
+    // Formatear datos
+    const formatted = mesas?.map((mesa: any) => {
+      // Buscar la asignación activa
+      const asignacionActiva = (mesa.asignaciones_mesa || []).find(
+        (a: any) => a.activa === true
+      )
+      
+      return {
+        ...mesa,
+        mesero_id: asignacionActiva?.usuario_id || null,
+        mesero_nombre: asignacionActiva?.usuarios?.nombre || null,
+        mesero_email: asignacionActiva?.usuarios?.email || null,
+        asignaciones_mesa: undefined,
+      }
+    }) || []
 
     return NextResponse.json({ success: true, mesas: formatted })
   } catch (error: any) {
+    console.error('Error GET mesas:', error)
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 }

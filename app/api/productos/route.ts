@@ -2,6 +2,7 @@
 import { NextResponse, NextRequest } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { requireTenantAuth } from '@/lib/auth'
+import { obtenerDisponibilidadProductos } from '@/lib/inventario'
 
 export async function GET(req: NextRequest) {
   try {
@@ -29,12 +30,21 @@ export async function GET(req: NextRequest) {
     }
 
     const { data: productos } = await query.order('fecha_creacion', { ascending: false })
+    
+    // Obtener disponibilidad dinámica basada en recetas e inventario
+    const disponibilidad = await obtenerDisponibilidadProductos(user.tenantId!)
 
-    const formatted = productos?.map(p => ({
-      ...p,
-      categoria_nombre: p.categorias?.nombre || null,
-      categorias: undefined
-    })) || []
+    const formatted = productos?.map(p => {
+      const dispInfo = disponibilidad[p.id];
+      return {
+        ...p,
+        // Si tiene receta, usar la disponibilidad calculada, si no, usar el campo estático
+        disponible: dispInfo ? dispInfo.disponible : p.disponible,
+        stock_calculado: dispInfo ? dispInfo.stock_disponible : p.stock,
+        categoria_nombre: p.categorias?.nombre || null,
+        categorias: undefined
+      };
+    }) || []
 
     return NextResponse.json({ success: true, productos: formatted })
   } catch (error: any) {

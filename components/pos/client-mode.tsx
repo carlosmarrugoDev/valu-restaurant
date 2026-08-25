@@ -198,7 +198,7 @@ export function ClientMode() {
                 ) : (
                   <Package className="size-12 text-muted-foreground/30" />
                 )}
-                {p.stock === 0 && (
+                {(!p.disponible || p.stock_calculado === 0) && (
                   <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
                     <Badge variant="destructive">Agotado</Badge>
                   </div>
@@ -211,7 +211,7 @@ export function ClientMode() {
                   <Button 
                     size="sm" 
                     onClick={() => addToCart(p)} 
-                    disabled={!mesaId || p.stock === 0}
+                    disabled={!mesaId || !p.disponible || p.stock_calculado === 0}
                   >
                     <Plus className="size-4" />
                   </Button>
