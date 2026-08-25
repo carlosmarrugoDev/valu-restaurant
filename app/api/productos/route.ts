@@ -34,17 +34,41 @@ export async function GET(req: NextRequest) {
     // Obtener disponibilidad dinámica basada en recetas e inventario
     const disponibilidad = await obtenerDisponibilidadProductos(user.tenantId!)
 
-    const formatted = productos?.map(p => {
+    const formatted = await Promise.all((productos || []).map(async p => {
       const dispInfo = disponibilidad[p.id];
+      
+      // Calcular costo real si el plan lo permite
+      let costoReal = p.costo;
+      const { data: receta } = await supabase
+        .from('recetas')
+        .select(`
+          receta_items (
+            cantidad,
+            insumos (costo_unitario)
+          )
+        `)
+        .eq('producto_id', p.id)
+        .eq('tenant_id', user.tenantId)
+        .maybeSingle();
+      
+      if (receta?.receta_items) {
+        costoReal = receta.receta_items.reduce((acc: number, item: any) => {
+          return acc + (item.cantidad * (item.insumos?.costo_unitario || 0));
+        }, 0);
+      }
+
+      const margen = p.precio > 0 ? ((p.precio - costoReal) / p.precio) * 100 : 0;
+
       return {
         ...p,
-        // Si tiene receta, usar la disponibilidad calculada, si no, usar el campo estático
         disponible: dispInfo ? dispInfo.disponible : p.disponible,
         stock_calculado: dispInfo ? dispInfo.stock_disponible : p.stock,
+        costo_calculado: costoReal,
+        margen_porcentaje: Math.round(margen),
         categoria_nombre: p.categorias?.nombre || null,
         categorias: undefined
       };
-    }) || []
+    }))
 
     return NextResponse.json({ success: true, productos: formatted })
   } catch (error: any) {

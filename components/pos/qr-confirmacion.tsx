@@ -34,6 +34,24 @@ export function QRConfirmacion() {
     return () => clearInterval(interval);
   }, [user]);
 
+  // Sonido de notificación cuando llega un pedido nuevo
+  useEffect(() => {
+    if (pedidos.length > 0) {
+      const audio = new Audio("/sounds/notification.mp3");
+      audio.play().catch(() => {
+        // El navegador bloquea audio sin interacción previa, ignorar
+      });
+      
+      // Notificación de escritorio si está permitida
+      if (Notification.permission === "granted") {
+        new Notification("Nuevo pedido QR", {
+          body: `Mesa ${pedidos[0].mesa_nombre || 'sin nombre'} ha realizado un pedido.`,
+          icon: "/favicon.ico"
+        });
+      }
+    }
+  }, [pedidos.length]);
+
   const loadPedidos = async () => {
     try {
       const res = await fetch("/api/pedidos?estado=pendiente_confirmacion");
@@ -69,14 +87,18 @@ export function QRConfirmacion() {
   };
 
   const rechazarPedido = async (pedidoId: string) => {
-    const motivo = prompt("Motivo del rechazo:");
-    if (!motivo) return;
+    const motivo = prompt("Motivo del rechazo (Obligatorio):");
+    if (!motivo || motivo.trim().length < 3) {
+      toast.error("Debes indicar un motivo válido para rechazar el pedido");
+      return;
+    }
     try {
       const res = await fetch(`/api/pedidos?id=${pedidoId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           estado: "cancelado",
+          motivo: motivo,
           notas: `Rechazado: ${motivo}`,
         }),
       });
@@ -117,33 +139,41 @@ export function QRConfirmacion() {
           (s: number, i: any) => s + i.precio_unitario * i.cantidad,
           0,
         );
+        const minutosTranscurridos = Math.floor(
+          (Date.now() - new Date(pedido.fecha_creacion).getTime()) / 60000,
+        );
+        const esCritico = minutosTranscurridos >= 3;
 
         return (
           <Card
             key={pedido.id}
-            className="border-yellow-500/30 bg-yellow-500/5"
+            className={`border-2 transition-colors ${
+              esCritico
+                ? "border-destructive bg-destructive/5 animate-pulse"
+                : "border-yellow-500/30 bg-yellow-500/5"
+            }`}
           >
             <CardHeader className="pb-2">
               <div className="flex items-center justify-between">
                 <CardTitle className="text-base flex items-center gap-2">
-                  <Users className="size-4 text-yellow-500" />
+                  <Users className={`size-4 ${esCritico ? "text-destructive" : "text-yellow-500"}`} />
                   {pedido.mesa_nombre || `Mesa #${pedido.mesa_id}`}
                 </CardTitle>
                 <Badge
-                  variant="outline"
-                  className="text-yellow-500 border-yellow-500/30"
+                  variant={esCritico ? "destructive" : "outline"}
+                  className={!esCritico ? "text-yellow-500 border-yellow-500/30" : ""}
                 >
                   <Clock className="size-3 mr-1" />
-                  QR pendiente
+                  {esCritico ? "¡URGENTE!" : "QR pendiente"}
                 </Badge>
               </div>
               <CardDescription>
-                {items.length} items · Hace{" "}
-                {Math.floor(
-                  (Date.now() - new Date(pedido.fecha_creacion).getTime()) /
-                    60000,
-                )}{" "}
-                min
+                {items.length} items · Hace {minutosTranscurridos} min
+                {esCritico && (
+                  <span className="block text-[10px] font-bold text-destructive mt-1 uppercase">
+                    Escalando a gerencia...
+                  </span>
+                )}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">

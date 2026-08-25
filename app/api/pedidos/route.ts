@@ -268,50 +268,9 @@ export async function PATCH(req: NextRequest) {
       updates.hora_cierre = new Date().toISOString()
     }
 
-    // Si se cobra, descontar insumos (si no se hizo antes)
-    if (estado === 'pagado') {
-      await supabase
-        .from('pedido_items')
-        .update({ estado: 'listo' })
-        .eq('pedido_id', id)
-
-      // Solo descontar si no se descontó antes (para pedidos QR confirmados)
-      if (pedidoActual.estado === 'pendiente_confirmacion') {
-        const items = pedidoActual.pedido_items || []
-        await descontarInsumosPorPedido(
-          user.tenantId!,
-          user.userId,
-          id,
-          items.map((item: any) => ({
-            producto_id: item.producto_id,
-            cantidad: item.cantidad,
-          }))
-        )
-      }
-    }
-
-    // Cancelar pedido con reversión de insumos
-    if (estado === 'cancelado' && pedidoActual.estado !== 'cancelado') {
-      const items = pedidoActual.pedido_items || []
-      const resultado = await revertirDescuentoInsumos(
-        user.tenantId!,
-        user.userId,
-        id,
-        items.map((item: any) => ({
-          producto_id: item.producto_id,
-          cantidad: item.cantidad,
-        }))
-      )
-
-      if (!resultado.success) {
-        return NextResponse.json({ error: resultado.error }, { status: 400 })
-      }
-      updates.motivo_cancelacion = body.motivo || 'Cancelado por usuario'
-    }
-
     // Si se envía a cocina (confirmación QR)
     if (estado === 'en_cocina' && pedidoActual.estado === 'pendiente_confirmacion') {
-      // Descontar insumos al confirmar
+      // Validar stock antes de confirmar
       const items = pedidoActual.pedido_items || []
       const resultado = await descontarInsumosPorPedido(
         user.tenantId!,
@@ -334,6 +293,30 @@ export async function PATCH(req: NextRequest) {
         .from('pedido_items')
         .update({ estado: 'en_cocina' })
         .eq('pedido_id', id)
+    }
+
+    // Si se cancela, registrar motivo y revertir stock
+    if (estado === 'cancelado' && pedidoActual.estado !== 'cancelado') {
+      const items = pedidoActual.pedido_items || []
+      
+      // Solo revertir si ya se había descontado (estaba en cocina o pagado)
+      if (pedidoActual.estado !== 'pendiente_confirmacion') {
+        const resultado = await revertirDescuentoInsumos(
+          user.tenantId!,
+          user.userId,
+          id,
+          items.map((item: any) => ({
+            producto_id: item.producto_id,
+            cantidad: item.cantidad,
+          }))
+        )
+
+        if (!resultado.success) {
+          return NextResponse.json({ error: resultado.error }, { status: 400 })
+        }
+      }
+      
+      updates.motivo_cancelacion = body.motivo || 'Cancelado por usuario'
     }
 
     const { data: pedido, error: updateError } = await supabase

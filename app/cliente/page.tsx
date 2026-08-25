@@ -27,6 +27,19 @@ function ClientPageContent() {
   const [mesaNombre, setMesaNombre] = useState<string>("");
   const [enviando, setEnviando] = useState(false);
   const [mesaEncontrada, setMesaEncontrada] = useState<any>(null);
+  const [isOffline, setIsOffline] = useState(false);
+
+  // Monitorear conexión
+  useEffect(() => {
+    const handleOnline = () => setIsOffline(false);
+    const handleOffline = () => setIsOffline(true);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
 
   // Estado del pedido del cliente
   const [pedidoActivo, setPedidoActivo] = useState<any | null>(null);
@@ -604,6 +617,13 @@ function ClientPageContent() {
   return (
     <div className="min-h-screen bg-background p-4 md:p-6">
       <div className="max-w-4xl mx-auto">
+        {/* Aviso Offline */}
+        {isOffline && (
+          <div className="mb-4 p-3 bg-destructive text-white rounded-lg flex items-center gap-2 animate-pulse text-sm font-bold">
+            <XCircle className="size-4" />
+            Sin conexión a internet. Tu pedido no se enviará hasta que vuelvas a estar en línea.
+          </div>
+        )}
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div>

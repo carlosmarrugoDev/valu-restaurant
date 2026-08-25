@@ -24,6 +24,8 @@ const FACTORES_CONVERSION: Record<string, number> = {
   'g': 1,
   'l': 1000,
   'ml': 1,
+  'libra': 500, // Común en Colombia (500g)
+  'lb': 500,
   'unidad': 1,
   'unidades': 1,
   'pieza': 1,
@@ -31,14 +33,15 @@ const FACTORES_CONVERSION: Record<string, number> = {
 };
 
 function normalizarCantidad(cantidad: number, unidad: string): number {
-  const unidadLower = (unidad || 'unidad').toLowerCase();
+  const unidadLower = (unidad || 'unidad').toLowerCase().trim();
   const factor = FACTORES_CONVERSION[unidadLower] || 1;
   return cantidad * factor;
 }
 
 function getFactorToBase(unidad: string): number {
-  const u = (unidad || 'unidad').toLowerCase();
+  const u = (unidad || 'unidad').toLowerCase().trim();
   if (u === 'kg' || u === 'l') return 1000;
+  if (u === 'libra' || u === 'lb') return 500;
   return 1;
 }
 
