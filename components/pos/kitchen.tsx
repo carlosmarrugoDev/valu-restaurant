@@ -307,7 +307,7 @@ export function Kitchen() {
           {pedidosActivos.map((pedido) => {
             const items = pedido.items || []
             const todosListos = items.length > 0 && items.every((i: any) => i.estado === 'listo')
-            const enProgreso = items.some((i: any) => i.estado === 'en_cocina') && !todosListos
+            const enProgreso = items.some((i: any) => ['pendiente_pago', 'pendiente', 'en_cocina', 'en_preparacion'].includes(i.estado)) && !todosListos
             const tiempo = pedido.segundos_transcurridos || 0
             const minutos = Math.floor(tiempo / 60)
             const tEst = pedido.tiempo_estimado || 10

@@ -16,7 +16,7 @@ export async function GET(req: NextRequest) {
         cocinero:usuarios!cocinero_id (nombre)
       `)
       .eq('tenant_id', user.tenantId)
-      .in('estado', ['en_espera_cocina', 'en_preparacion', 'listo'])
+      .in('estado', ['en_cocina', 'en_espera_cocina', 'en_preparacion', 'listo'])
       .order('fecha_creacion', { ascending: true })
 
     const pedidosConItems = await Promise.all((pedidos || []).map(async (p: any) => {
@@ -24,7 +24,7 @@ export async function GET(req: NextRequest) {
         .from('pedido_items')
         .select('*')
         .eq('pedido_id', p.id)
-        .in('estado', ['pendiente', 'en_preparacion', 'listo'])
+        .in('estado', ['pendiente_pago', 'pendiente', 'en_cocina', 'en_preparacion', 'listo'])
 
       const segundosTranscurridos = p.fecha_creacion
         ? Math.floor((Date.now() - new Date(p.fecha_creacion).getTime()) / 1000)
@@ -148,7 +148,7 @@ export async function PATCH(req: NextRequest) {
         .from('pedido_items')
         .update({ estado: 'listo' })
         .eq('pedido_id', pedido_id)
-        .in('estado', ['pendiente', 'en_preparacion'])
+        .in('estado', ['pendiente_pago', 'pendiente', 'en_cocina', 'en_preparacion'])
 
       await supabase
         .from('pedidos')

@@ -29,7 +29,12 @@ export async function GET(req: NextRequest) {
     if (activos) {
       query = query.not('estado', 'in', '(pagado,cancelado,entregado)')
     } else if (estado) {
-      query = query.eq('estado', estado)
+      const estadosLista = estado.split(',').map(s => s.trim()).filter(Boolean)
+      if (estadosLista.length > 1) {
+        query = query.in('estado', estadosLista)
+      } else {
+        query = query.eq('estado', estado)
+      }
     }
 
     if (mesaId) query = query.eq('mesa_id', mesaId)
@@ -150,7 +155,7 @@ export async function POST(req: NextRequest) {
         cantidad: cantidad,
         subtotal: itemSubtotal,
         notas: item.nota || null,
-        estado: estadoInicial === 'pendiente_pago' ? 'pendiente_pago' : 'en_cocina',
+        estado: estadoInicial === 'pendiente_pago' ? 'pendiente_pago' : 'pendiente',
       })
     }
 
@@ -271,6 +276,7 @@ export async function PATCH(req: NextRequest) {
     let descontarInsumos = false
     let liberarMesa = false
     let revertirInsumos = false
+    let actualizarItemsAPendiente = false
 
     if (accion === 'tomar_preparacion') {
       if (!['en_cocina', 'en_espera_cocina'].includes(pedidoActual.estado)) {
@@ -310,6 +316,7 @@ export async function PATCH(req: NextRequest) {
         updates.estado = 'en_espera_cocina'
         updates.hora_apertura = pedidoActual.hora_apertura || new Date().toISOString()
         descontarInsumos = true
+        actualizarItemsAPendiente = true
       } else if (estado === 'listo' && ['en_cocina', 'en_preparacion', 'en_espera_cocina'].includes(pedidoActual.estado)) {
         updates.estado = 'listo'
         updates.fecha_listo = new Date().toISOString()
@@ -383,6 +390,14 @@ export async function PATCH(req: NextRequest) {
       .single()
 
     if (updateError) throw updateError
+
+    if (actualizarItemsAPendiente) {
+      await supabase
+        .from('pedido_items')
+        .update({ estado: 'pendiente' })
+        .eq('pedido_id', id)
+        .eq('estado', 'pendiente_pago')
+    }
 
     if (liberarMesa && pedidoActual.mesa_id) {
       await supabase

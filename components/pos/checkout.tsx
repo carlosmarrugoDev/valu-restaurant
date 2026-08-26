@@ -51,7 +51,7 @@ export function Checkout() {
   const loadPedidos = async () => {
     setLoading(true)
     try {
-      const res = await fetch('/api/pedidos?estado=listo')
+      const res = await fetch('/api/pedidos?estado=listo,entregado')
       const data = await res.json()
       if (res.ok) {
         const pedidosPendientes = (data.pedidos || []).filter((p: any) => !p.metodo_pago)
