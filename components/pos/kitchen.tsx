@@ -2,8 +2,8 @@
 
 import { useState, useEffect, useRef } from 'react'
 import {
-  Clock, Check, CircleCheckBig, ChefHat, Loader2, Bell, Send, Edit2, X, RefreshCw
-} from 'lucide-react'  // ← Agregar RefreshCw aquí
+  Clock, Check, CircleCheckBig, ChefHat, Loader2, Bell, Send, Edit2, X, RefreshCw, UserCheck, LogOut
+} from 'lucide-react'
 
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -41,7 +41,7 @@ export function Kitchen() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const intervalRef = useRef<NodeJS.Timeout | null>(null)
-  
+
   const [openTiempoDialog, setOpenTiempoDialog] = useState(false)
   const [pedidoEditando, setPedidoEditando] = useState<any | null>(null)
   const [tiempoEstimado, setTiempoEstimado] = useState<number>(10)
@@ -87,13 +87,55 @@ export function Kitchen() {
         setError(data.error || 'Error al cargar pedidos')
       }
     } catch {
-      setError('Error de conexión')
+      setError('Error de conexion')
     } finally {
       setLoading(false)
     }
   }
 
-  const marcarItemListo = async (pedidoId: string, itemId: string) => {
+  const tomarPedido = async (pedidoId: string) => {
+    try {
+      const res = await fetch(`/api/pedidos?id=${pedidoId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accion: 'tomar_preparacion' }),
+      })
+      if (res.ok) {
+        toast.success('Pedido tomado. Comienza a prepararlo.')
+        await loadPedidos()
+      } else {
+        const d = await res.json()
+        toast.error(d.error || 'No se pudo tomar el pedido')
+      }
+    } catch {
+      toast.error('Error de conexion')
+    }
+  }
+
+  const liberarPedido = async (pedidoId: string) => {
+    try {
+      const res = await fetch(`/api/pedidos?id=${pedidoId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accion: 'liberar_pedido' }),
+      })
+      if (res.ok) {
+        toast.info('Pedido liberado. Otro cocinero podra tomarlo.')
+        await loadPedidos()
+      } else {
+        const d = await res.json()
+        toast.error(d.error || 'No se pudo liberar')
+      }
+    } catch {
+      toast.error('Error de conexion')
+    }
+  }
+
+  const marcarItemListo = async (pedidoId: string, itemId: string, pedido: any) => {
+    if (pedido.cocinero_id && user && pedido.cocinero_id !== user.id && user.rol !== 'dueno' && user.rol !== 'gerente') {
+      toast.error('Solo el cocinero que tomo el pedido puede marcar items.')
+      return
+    }
     try {
       const res = await fetch('/api/cocina', {
         method: 'PATCH',
@@ -105,29 +147,33 @@ export function Kitchen() {
         }),
       })
       if (res.ok) {
-        toast.success('Item marcado como listo ✅')
+        toast.success('Item listo.')
         await loadPedidos()
       } else {
         const data = await res.json()
         toast.error(data.error || 'Error al marcar item')
       }
     } catch {
-      toast.error('Error de conexión')
+      toast.error('Error de conexion')
     }
   }
 
-  const marcarPedidoListo = async (pedidoId: string) => {
+  const marcarPedidoListo = async (pedido: any) => {
+    if (pedido.cocinero_id && user && pedido.cocinero_id !== user.id && user.rol !== 'dueno' && user.rol !== 'gerente') {
+      toast.error('Solo el cocinero que tomo el pedido puede marcarlo listo.')
+      return
+    }
     try {
       const res = await fetch('/api/cocina', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          pedido_id: pedidoId,
+          pedido_id: pedido.id,
           tipo: 'pedido'
         }),
       })
       if (res.ok) {
-        toast.success(`🍽️ Pedido listo para servir!`, {
+        toast.success('Pedido listo. Se notifica al cliente.', {
           duration: 5000,
         })
         await loadPedidos()
@@ -136,7 +182,7 @@ export function Kitchen() {
         toast.error(data.error || 'Error al marcar pedido')
       }
     } catch {
-      toast.error('Error de conexión')
+      toast.error('Error de conexion')
     }
   }
 
@@ -150,14 +196,14 @@ export function Kitchen() {
         }),
       })
       if (res.ok) {
-        toast.success('✅ Pedido entregado al cliente')
+        toast.success('Pedido entregado al cliente.')
         await loadPedidos()
       } else {
         const data = await res.json()
         toast.error(data.error || 'Error al marcar entregado')
       }
     } catch {
-      toast.error('Error de conexión')
+      toast.error('Error de conexion')
     }
   }
 
@@ -186,7 +232,7 @@ export function Kitchen() {
         toast.error(data.error || 'Error al actualizar tiempo')
       }
     } catch {
-      toast.error('Error de conexión')
+      toast.error('Error de conexion')
     }
   }
 
@@ -209,9 +255,12 @@ export function Kitchen() {
     )
   }
 
-  const pedidosActivos = pedidos.filter(p => 
-    p.estado === 'en_cocina' || p.estado === 'listo'
+  const pedidosActivos = pedidos.filter(p =>
+    ['en_cocina', 'en_espera_cocina', 'en_preparacion', 'listo'].includes(p.estado)
   )
+
+  const pedidoTomadoPorMi = (p: any) => user && p.cocinero_id === user.id
+  const pedidoTomadoPorOtro = (p: any) => p.cocinero_id && user && p.cocinero_id !== user.id
 
   return (
     <div className="flex flex-col gap-6">
@@ -220,18 +269,23 @@ export function Kitchen() {
           <ChefHat className="size-4 text-primary" />
           <span>
             <span className="font-medium text-foreground tabular-nums">{pedidosActivos.length}</span>
-            comandas activas
+            {' '}comandas activas
           </span>
+          {user && (
+            <Badge variant="outline" className="ml-2">
+              Sesion: {user.nombre || user.email}
+            </Badge>
+          )}
         </div>
         <div className="flex items-center gap-4 text-xs">
           <span className="flex items-center gap-1.5">
-            <span className="size-2.5 rounded-full bg-status-free" /> A tiempo (&lt;10m)
+            <span className="size-2.5 rounded-full bg-status-free" /> A tiempo ({`<`}10m)
           </span>
           <span className="flex items-center gap-1.5">
             <span className="size-2.5 rounded-full bg-status-bill" /> Demorado (10-20m)
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="size-2.5 rounded-full bg-destructive" /> Crítico (&gt;20m)
+            <span className="size-2.5 rounded-full bg-destructive" /> Critico ({`>`}20m)
           </span>
         </div>
         <Button variant="outline" size="sm" onClick={loadPedidos}>
@@ -243,30 +297,52 @@ export function Kitchen() {
       {pedidosActivos.length === 0 ? (
         <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-border bg-card py-24 text-center">
           <CircleCheckBig className="size-12 text-status-free" />
-          <p className="font-display text-xl font-semibold">¡Todo al día!</p>
-          <p className="text-sm text-muted-foreground">No hay comandas activas en cocina.</p>
+          <p className="font-display text-xl font-semibold">Todo al dia.</p>
+          <p className="text-sm text-muted-foreground">
+            No hay comandas activas en cocina en este momento.
+          </p>
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
           {pedidosActivos.map((pedido) => {
             const items = pedido.items || []
-            const todosListos = items.every((i: any) => i.estado === 'listo')
-            const enProgreso = items.some((i: any) => i.estado === 'en_cocina')
+            const todosListos = items.length > 0 && items.every((i: any) => i.estado === 'listo')
+            const enProgreso = items.some((i: any) => i.estado === 'en_cocina') && !todosListos
             const tiempo = pedido.segundos_transcurridos || 0
             const minutos = Math.floor(tiempo / 60)
-            const tiempoEstimado = pedido.tiempo_estimado || 10
-            const tiempoRestante = Math.max(0, tiempoEstimado - minutos)
+            const tEst = pedido.tiempo_estimado || 10
+            const tiempoRestante = Math.max(0, tEst - minutos)
+            const tomadoPorMi = pedidoTomadoPorMi(pedido)
+            const tomadoPorOtro = pedidoTomadoPorOtro(pedido)
+            const sinAsignar = pedido.estado === 'en_espera_cocina' || pedido.estado === 'en_cocina'
 
             return (
-              <div key={pedido.id} className="flex flex-col overflow-hidden rounded-xl border-2 border-border bg-card">
+              <div
+                key={pedido.id}
+                className={cn(
+                  'flex flex-col overflow-hidden rounded-xl border-2 bg-card transition-colors',
+                  tomadoPorMi && 'border-primary/60 shadow-md',
+                  tomadoPorOtro && 'border-blue-400/40',
+                  pedido.estado === 'listo' && 'border-green-500/60',
+                  !tomadoPorMi && !tomadoPorOtro && pedido.estado !== 'listo' && 'border-border',
+                )}
+              >
                 <div className="flex items-center justify-between gap-2 border-b border-border bg-secondary/60 px-4 py-3">
                   <div>
                     <p className="font-display text-lg font-bold leading-none">
                       {pedido.mesa_nombre || `Mesa #${pedido.mesa_id}`}
                     </p>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      Pedido #{pedido.numero_pedido || pedido.id.slice(0, 6)} · {pedido.mesero_nombre || 'Sin mesero'}
+                      Pedido #{pedido.numero_pedido || pedido.id.slice(0, 6)}
+                      {' \u00b7 '}
+                      {pedido.mesero_nombre || 'Sin mesero'}
                     </p>
+                    {pedido.cocinero_nombre && (
+                      <p className="mt-1 text-[11px] flex items-center gap-1 text-muted-foreground">
+                        <UserCheck className="size-3" />
+                        Cocinero: <span className="font-medium">{pedido.cocinero_nombre}</span>
+                      </p>
+                    )}
                   </div>
                   <div className="flex flex-col items-end gap-1">
                     <span className={cn(
@@ -277,7 +353,7 @@ export function Kitchen() {
                       {formatTiempo(tiempo)}
                     </span>
                     <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
-                      <span>Estimado: {tiempoEstimado}m</span>
+                      <span>Est: {tEst}m</span>
                       <button
                         onClick={() => abrirEditarTiempo(pedido)}
                         className="text-primary hover:text-primary/80"
@@ -287,12 +363,12 @@ export function Kitchen() {
                     </div>
                     {minutos >= 10 && (
                       <Badge variant="destructive" className="text-[10px] animate-pulse">
-                        ⚠️ Demorado
+                        Demorado
                       </Badge>
                     )}
-                    {tiempoRestante > 0 && minutos < tiempoEstimado && (
+                    {tiempoRestante > 0 && minutos < tEst && (
                       <Badge variant="outline" className="text-[10px] text-status-free">
-                        ⏱️ {tiempoRestante}m restante
+                        {tiempoRestante}m restante
                       </Badge>
                     )}
                   </div>
@@ -302,23 +378,44 @@ export function Kitchen() {
                   <div className="flex items-center justify-between">
                     <span className={cn(
                       'rounded-full px-2.5 py-0.5 text-xs font-semibold',
-                      pedido.estado === 'listo' ? 'bg-status-free/25 text-status-free' :
-                      todosListos ? 'bg-status-free/25 text-status-free' :
-                      enProgreso ? 'bg-status-bill/25 text-status-bill' :
-                      'bg-primary/25 text-primary',
+                      pedido.estado === 'listo'
+                        ? 'bg-green-600/15 text-green-700'
+                        : pedido.estado === 'en_preparacion'
+                          ? tomadoPorMi
+                            ? 'bg-primary/20 text-primary'
+                            : 'bg-amber-500/20 text-amber-700'
+                          : todosListos
+                            ? 'bg-status-free/25 text-status-free'
+                            : enProgreso
+                              ? 'bg-status-bill/25 text-status-bill'
+                              : 'bg-blue-500/15 text-blue-700',
                     )}>
-                      {pedido.estado === 'listo' ? '✅ Listo' : 
-                       todosListos ? '✅ Listo' : 
-                       enProgreso ? '⏳ En preparación' : '📋 Pendiente'}
+                      {pedido.estado === 'listo'
+                        ? 'Listo para entregar'
+                        : pedido.estado === 'en_preparacion'
+                          ? tomadoPorMi
+                            ? 'Lo estas preparando tu'
+                            : `En preparacion (${pedido.cocinero_nombre || 'asignado'})`
+                          : todosListos
+                            ? 'Items listos'
+                            : enProgreso
+                              ? 'En preparacion'
+                              : sinAsignar ? 'Sin asignar - tomar pedido' : pedido.estado}
                     </span>
                     <span className="text-xs text-muted-foreground">
                       {items.filter((i: any) => i.estado === 'listo').length}/{items.length} listos
                     </span>
                   </div>
 
-                  <ul className="flex flex-col gap-2.5 max-h-[300px] overflow-y-auto">
+                  <ul className="flex flex-col gap-2.5 max-h-[300px] overflow-y-auto pr-1">
                     {items.map((item: any, i: number) => {
                       const estaListo = item.estado === 'listo'
+                      const puedeEditar =
+                        pedido.estado === 'listo'
+                          ? false
+                          : pedido.cocinero_id
+                            ? tomadoPorMi || user?.rol === 'dueno' || user?.rol === 'gerente'
+                            : true
                       return (
                         <li key={i} className={cn(
                           'flex flex-col gap-0.5 rounded-lg p-2 transition-colors',
@@ -327,7 +424,7 @@ export function Kitchen() {
                           <div className="flex items-baseline justify-between gap-2">
                             <div className="flex items-center gap-2">
                               <span className="font-display text-lg font-bold text-primary tabular-nums">
-                                {item.cantidad}×
+                                {item.cantidad}x
                               </span>
                               <span className={cn(
                                 'text-base font-medium leading-tight',
@@ -342,8 +439,14 @@ export function Kitchen() {
                               <Button
                                 size="sm"
                                 variant="outline"
-                                className="h-7 px-2 text-xs border-green-500/50 text-green-500 hover:bg-green-500/10"
-                                onClick={() => marcarItemListo(pedido.id, item.id)}
+                                className={cn(
+                                  'h-7 px-2 text-xs transition-colors',
+                                  puedeEditar
+                                    ? 'border-green-500/50 text-green-600 hover:bg-green-500/10'
+                                    : 'border-border text-muted-foreground opacity-60',
+                                )}
+                                onClick={() => puedeEditar && marcarItemListo(pedido.id, item.id, pedido)}
+                                disabled={!puedeEditar}
                               >
                                 <Check className="size-3 mr-1" />
                                 Listo
@@ -352,7 +455,7 @@ export function Kitchen() {
                           </div>
                           {item.notas && (
                             <span className="ml-7 rounded bg-status-bill/15 px-2 py-0.5 text-xs font-medium text-status-bill">
-                              📝 {item.notas}
+                              {item.notas}
                             </span>
                           )}
                         </li>
@@ -366,36 +469,65 @@ export function Kitchen() {
                     <>
                       <Button
                         size="lg"
-                        className="w-full bg-green-500 hover:bg-green-600 text-white"
+                        className="w-full bg-green-600 hover:bg-green-700 text-white"
                         onClick={() => marcarEntregado(pedido.id)}
                       >
                         <Send className="size-4 mr-2" />
                         Marcar como Entregado
                       </Button>
                       <p className="text-xs text-center text-muted-foreground">
-                        El cliente recibirá notificación de entrega
+                        El cliente recibe actualizacion automaticamente.
                       </p>
                     </>
                   ) : (
-                    <Button
-                      size="lg"
-                      className="w-full"
-                      variant={todosListos ? 'default' : 'secondary'}
-                      onClick={() => marcarPedidoListo(pedido.id)}
-                      disabled={!todosListos}
-                    >
-                      {todosListos ? (
-                        <>
-                          <Bell className="size-4 mr-2" />
-                          Notificar que está listo
-                        </>
-                      ) : (
-                        <>
-                          <Clock className="size-4 mr-2" />
-                          Esperando items...
-                        </>
+                    <>
+                      {sinAsignar && !tomadoPorOtro && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="w-full border-primary/50 text-primary hover:bg-primary/10"
+                          onClick={() => tomarPedido(pedido.id)}
+                        >
+                          <UserCheck className="size-4 mr-2" />
+                          Tomar para preparar
+                        </Button>
                       )}
-                    </Button>
+                      {tomadoPorMi && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="w-full text-xs text-muted-foreground hover:text-destructive"
+                          onClick={() => liberarPedido(pedido.id)}
+                        >
+                          <LogOut className="size-3 mr-1.5" />
+                          Liberar pedido
+                        </Button>
+                      )}
+                      {tomadoPorOtro && (
+                        <p className="text-[11px] text-center text-blue-700 bg-blue-500/5 border border-blue-500/20 rounded-md py-1.5">
+                          En preparacion por {pedido.cocinero_nombre}
+                        </p>
+                      )}
+                      <Button
+                        size="lg"
+                        className="w-full"
+                        variant={todosListos ? 'default' : 'secondary'}
+                        onClick={() => marcarPedidoListo(pedido)}
+                        disabled={!todosListos || (tomadoPorOtro && user?.rol !== 'dueno' && user?.rol !== 'gerente')}
+                      >
+                        {todosListos ? (
+                          <>
+                            <Bell className="size-4 mr-2" />
+                            Notificar listo al cliente
+                          </>
+                        ) : (
+                          <>
+                            <Clock className="size-4 mr-2" />
+                            Esperando items...
+                          </>
+                        )}
+                      </Button>
+                    </>
                   )}
                 </div>
               </div>
@@ -423,7 +555,7 @@ export function Kitchen() {
                 >
                   -
                 </Button>
-                <span className="text-2xl font-bold w-16 text-center">{tiempoEstimado}</span>
+                <span className="text-2xl font-bold w-16 text-center tabular-nums">{tiempoEstimado}</span>
                 <Button
                   variant="outline"
                   size="sm"
@@ -433,12 +565,12 @@ export function Kitchen() {
                 </Button>
                 <span className="text-sm text-muted-foreground">minutos</span>
               </div>
-              <div className="flex gap-2 mt-3">
-                <Button variant="outline" size="sm" onClick={() => setTiempoEstimado(5)}>5m</Button>
-                <Button variant="outline" size="sm" onClick={() => setTiempoEstimado(10)}>10m</Button>
-                <Button variant="outline" size="sm" onClick={() => setTiempoEstimado(15)}>15m</Button>
-                <Button variant="outline" size="sm" onClick={() => setTiempoEstimado(20)}>20m</Button>
-                <Button variant="outline" size="sm" onClick={() => setTiempoEstimado(30)}>30m</Button>
+              <div className="flex flex-wrap gap-2 mt-3">
+                {[5, 10, 15, 20, 30].map(n => (
+                  <Button key={n} variant="outline" size="sm" onClick={() => setTiempoEstimado(n)}>
+                    {n}m
+                  </Button>
+                ))}
               </div>
             </div>
           </div>

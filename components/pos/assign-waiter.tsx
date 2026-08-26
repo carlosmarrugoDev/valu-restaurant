@@ -132,7 +132,7 @@ export function AssignWaiter() {
 
       {empleados.length === 0 && (
         <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4 text-yellow-600">
-          ⚠️ No hay meseros registrados. Ve a "Personal" y crea uno primero.
+          No hay meseros registrados. Ve a "Personal" y crea uno primero.
         </div>
       )}
 
@@ -148,7 +148,7 @@ export function AssignWaiter() {
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-base">{mesa.nombre}</CardTitle>
                   <Badge variant={estaAsignado ? 'default' : 'outline'}>
-                    {estaAsignado ? '✅ Asignada' : 'Sin asignar'}
+                    {estaAsignado ? 'Asignada' : 'Sin asignar'}
                   </Badge>
                 </div>
                 <CardDescription>

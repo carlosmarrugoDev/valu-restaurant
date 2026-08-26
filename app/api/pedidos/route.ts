@@ -2,7 +2,7 @@
 import { NextResponse, NextRequest } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { requireTenantAuth } from '@/lib/auth'
-import { descontarInsumosPorPedido, revertirDescuentoInsumos } from '@/lib/inventario'
+import { descontarInsumosPorPedido, revertirDescuentoInsumos, validarStockPedido } from '@/lib/inventario'
 
 const IVA = 0.16
 
@@ -21,12 +21,13 @@ export async function GET(req: NextRequest) {
       .select(`
         *,
         mesas!mesa_id (nombre),
-        usuarios!mesero_id (nombre)
+        usuarios!mesero_id (nombre),
+        cocinero:usuarios!cocinero_id (nombre)
       `)
       .eq('tenant_id', user.tenantId)
 
     if (activos) {
-      query = query.neq('estado', 'pagado').neq('estado', 'cancelado')
+      query = query.not('estado', 'in', '(pagado,cancelado,entregado)')
     } else if (estado) {
       query = query.eq('estado', estado)
     }
@@ -45,9 +46,11 @@ export async function GET(req: NextRequest) {
         ...p,
         mesa_nombre: p.mesas?.nombre || null,
         mesero_nombre: p.usuarios?.nombre || null,
+        cocinero_nombre: (p as any).cocinero?.nombre || null,
         items: items || [],
         mesas: undefined,
         usuarios: undefined,
+        cocinero: undefined,
       }
     }))
 
@@ -93,7 +96,7 @@ export async function POST(req: NextRequest) {
     if (countError) throw countError
     const numeroPedido = (count ?? 0) + 1
 
-    const estadoInicial = es_qr ? 'pendiente_pago' : 'en_cocina'
+    const estadoInicial = es_qr ? 'pendiente_pago' : 'en_preparacion'
 
     let meseroAsignado = mesero_id || user.userId
     if (es_qr) {
@@ -128,7 +131,6 @@ export async function POST(req: NextRequest) {
         )
       }
 
-      // Verificar stock de producto directo
       if (producto.stock !== null && producto.stock < (item.cantidad || 1)) {
         return NextResponse.json(
           { error: `Stock insuficiente para ${producto.nombre}. Disponible: ${producto.stock}` },
@@ -148,14 +150,13 @@ export async function POST(req: NextRequest) {
         cantidad: cantidad,
         subtotal: itemSubtotal,
         notas: item.nota || null,
-        estado: 'en_cocina',
+        estado: estadoInicial === 'pendiente_pago' ? 'pendiente_pago' : 'en_cocina',
       })
     }
 
     const impuestos = subtotal * IVA
     const total = subtotal + impuestos
 
-    // Crear pedido
     const { data: pedido, error: pedidoError } = await supabase
       .from('pedidos')
       .insert({
@@ -189,8 +190,7 @@ export async function POST(req: NextRequest) {
       .insert(itemsConPedido)
       .select()
 
-    // Si es confirmación directa o es mesero, descontar insumos
-    if (estadoInicial === 'en_cocina') {
+    if (estadoInicial === 'en_preparacion') {
       const resultadoDescuento = await descontarInsumosPorPedido(
         user.tenantId!,
         user.userId,
@@ -202,7 +202,6 @@ export async function POST(req: NextRequest) {
       )
 
       if (!resultadoDescuento.success) {
-        // Revertir pedido si falla el descuento
         await supabase.from('pedidos').delete().eq('id', pedido.id)
         return NextResponse.json(
           { error: `No hay suficientes insumos: ${resultadoDescuento.error}` },
@@ -237,11 +236,16 @@ export async function PATCH(req: NextRequest) {
     }
 
     const body = await req.json()
-    const { estado, metodo_pago, propina, descuento, notas, tiempo_estimado } = body
-
-    if (!estado && tiempo_estimado === undefined) {
-      return NextResponse.json({ error: 'Estado o tiempo_estimado requerido' }, { status: 400 })
-    }
+    const {
+      estado,
+      metodo_pago,
+      propina,
+      descuento,
+      notas,
+      tiempo_estimado,
+      accion,
+      motivo,
+    } = body
 
     const { data: pedidoActual } = await supabase
       .from('pedidos')
@@ -264,23 +268,78 @@ export async function PATCH(req: NextRequest) {
     if (descuento !== undefined) updates.descuento = descuento
     if (notas !== undefined) updates.notas = notas
 
-    let esPagoQR = false
+    let descontarInsumos = false
+    let liberarMesa = false
+    let revertirInsumos = false
 
-    if (estado) {
+    if (accion === 'tomar_preparacion') {
+      if (!['en_cocina', 'en_espera_cocina'].includes(pedidoActual.estado)) {
+        return NextResponse.json(
+          { error: 'El pedido no está disponible para tomar' },
+          { status: 409 }
+        )
+      }
+      updates.estado = 'en_preparacion'
+      updates.cocinero_id = user.userId
+      updates.fecha_tomado = new Date().toISOString()
+    } else if (accion === 'liberar_pedido') {
+      if (pedidoActual.cocinero_id !== user.userId && user.rol !== 'dueno' && user.rol !== 'gerente') {
+        return NextResponse.json(
+          { error: 'No puedes liberar un pedido tomado por otro cocinero' },
+          { status: 403 }
+        )
+      }
+      updates.estado = 'en_espera_cocina'
+      updates.cocinero_id = null
+      updates.fecha_tomado = null
+    } else if (estado) {
       if (estado === 'pagado' && pedidoActual.estado === 'pendiente_pago') {
-        esPagoQR = true
-        updates.estado = 'en_cocina'
+        const valStock = await validarStockPedido(
+          user.tenantId!,
+          (pedidoActual.pedido_items || []).map((it: any) => ({
+            producto_id: it.producto_id,
+            cantidad: it.cantidad,
+          }))
+        )
+        if (!valStock.success) {
+          return NextResponse.json(
+            { error: `Stock insuficiente: ${valStock.error}` },
+            { status: 409 }
+          )
+        }
+        updates.estado = 'en_espera_cocina'
         updates.hora_apertura = pedidoActual.hora_apertura || new Date().toISOString()
+        descontarInsumos = true
+      } else if (estado === 'listo' && ['en_cocina', 'en_preparacion', 'en_espera_cocina'].includes(pedidoActual.estado)) {
+        updates.estado = 'listo'
+        updates.fecha_listo = new Date().toISOString()
+      } else if (estado === 'entregado' && pedidoActual.estado === 'listo') {
+        updates.estado = 'entregado'
+        updates.fecha_entrega = new Date().toISOString()
+        if (pedidoActual.es_qr) {
+          liberarMesa = true
+          updates.hora_cierre = new Date().toISOString()
+        }
+      } else if (estado === 'pagado' && pedidoActual.estado === 'listo') {
+        updates.estado = 'pagado'
+        updates.hora_cierre = new Date().toISOString()
+        liberarMesa = true
+      } else if (estado === 'cancelado' && pedidoActual.estado !== 'cancelado') {
+        updates.estado = 'cancelado'
+        updates.motivo_cancelacion = motivo || 'Cancelado por usuario'
+        if (!['pendiente_pago'].includes(pedidoActual.estado)) {
+          revertirInsumos = true
+        }
+        liberarMesa = true
+      } else if (estado === 'pagado' && pedidoActual.estado === 'entregado') {
+        updates.estado = 'pagado'
+        updates.hora_cierre = new Date().toISOString()
       } else {
         updates.estado = estado
       }
     }
 
-    if (estado === 'pagado' && !esPagoQR) {
-      updates.hora_cierre = new Date().toISOString()
-    }
-
-    if (esPagoQR) {
+    if (descontarInsumos) {
       const items = pedidoActual.pedido_items || []
       const resultadoDescuento = await descontarInsumosPorPedido(
         user.tenantId!,
@@ -291,7 +350,6 @@ export async function PATCH(req: NextRequest) {
           cantidad: item.cantidad,
         }))
       )
-
       if (!resultadoDescuento.success) {
         return NextResponse.json(
           { error: `No hay suficientes insumos: ${resultadoDescuento.error}` },
@@ -300,10 +358,8 @@ export async function PATCH(req: NextRequest) {
       }
     }
 
-    // Si se cancela, registrar motivo y revertir stock
-    if (estado === 'cancelado' && pedidoActual.estado !== 'cancelado') {
+    if (revertirInsumos) {
       const items = pedidoActual.pedido_items || []
-      
       const resultado = await revertirDescuentoInsumos(
         user.tenantId!,
         user.userId,
@@ -313,12 +369,9 @@ export async function PATCH(req: NextRequest) {
           cantidad: item.cantidad,
         }))
       )
-
       if (!resultado.success) {
         return NextResponse.json({ error: resultado.error }, { status: 400 })
       }
-      
-      updates.motivo_cancelacion = body.motivo || 'Cancelado por usuario'
     }
 
     const { data: pedido, error: updateError } = await supabase
@@ -331,14 +384,12 @@ export async function PATCH(req: NextRequest) {
 
     if (updateError) throw updateError
 
-    if (!esPagoQR && ['pagado', 'cancelado'].includes(updates.estado) && pedidoActual.mesa_id) {
-      // Liberar mesa
+    if (liberarMesa && pedidoActual.mesa_id) {
       await supabase
         .from('mesas')
         .update({ estado: 'libre', mesero_id: null, fecha_actualizacion: new Date().toISOString() })
         .eq('id', pedidoActual.mesa_id)
-      
-      // Desactivar asignación de mesero
+
       await supabase
         .from('asignaciones_mesa')
         .update({ activa: false })

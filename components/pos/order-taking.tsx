@@ -369,7 +369,7 @@ export function OrderTaking() {
                           </p>
                           {p.stock_calculado !== undefined && p.stock_calculado > 0 && p.stock_calculado <= 10 && (
                             <p className="text-[10px] text-orange-600 font-medium">
-                              ⚠️ Quedan {p.stock_calculado}
+                              Quedan {p.stock_calculado}
                             </p>
                           )}
                           <div className="mt-2 flex items-center justify-between gap-2">

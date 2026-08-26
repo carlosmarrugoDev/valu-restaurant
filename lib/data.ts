@@ -24,6 +24,7 @@ export type ModuleId =
   | 'personal'
   | 'asignar'
   | 'qr'
+  | 'turnos'
   | 'configuracion'
 
 // Qué módulos puede ver cada rol.
@@ -42,6 +43,7 @@ export const ROLE_ACCESS: Record<Role, ModuleId[]> = {
     'personal',
     'asignar',
     'qr',
+    'turnos',
     'configuracion',
   ],
   gerente: [
@@ -58,6 +60,7 @@ export const ROLE_ACCESS: Record<Role, ModuleId[]> = {
     'personal',
     'asignar',
     'qr',
+    'turnos',
   ],
   mesero: ['mesas', 'pedidos', 'cobro', 'qr'],
   cocina: ['cocina'],

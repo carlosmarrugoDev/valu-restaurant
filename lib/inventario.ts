@@ -370,6 +370,27 @@ export async function obtenerAlertasStock(tenantId: string): Promise<any[]> {
   });
 }
 
+export async function validarStockPedido(
+  tenantId: string,
+  items: { producto_id: string; cantidad: number }[],
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const faltantes: string[] = []
+    for (const it of items) {
+      const r = await verificarDisponibilidadProducto(tenantId, it.producto_id, it.cantidad || 1)
+      if (!r.disponible) {
+        faltantes.push(`${r.faltante || it.producto_id} (disp: ${r.stock_disponible ?? 0})`)
+      }
+    }
+    if (faltantes.length > 0) {
+      return { success: false, error: faltantes.join(', ') }
+    }
+    return { success: true }
+  } catch (e: any) {
+    return { success: false, error: e.message || 'Error de validacion' }
+  }
+}
+
 /**
  * Calcular costo de un platillo
  */

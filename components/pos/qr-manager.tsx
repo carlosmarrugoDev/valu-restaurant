@@ -63,7 +63,7 @@ export function QRManager() {
     
     setQrUrl(qrGenerated)
     setLoading(false)
-    toast.success('✅ QR generado para ' + mesa.nombre)
+    toast.success('QR generado para ' + mesa.nombre)
   }
 
   const copiarURL = () => {
@@ -116,7 +116,7 @@ export function QRManager() {
         </head>
         <body>
           <div class="qr-container">
-            <div class="title">🍽️ Escanea para pedir</div>
+            <div class="title">Escanea para pedir</div>
             <div class="mesa-label">${mesa?.nombre || 'Mesa'}</div>
             <img src="${qrUrl}" class="qr-image" alt="QR Code" />
             <div class="subtitle">${clientUrl}</div>
@@ -206,7 +206,7 @@ export function QRManager() {
                   {baseUrl}/cliente?mesa={mesaActual.nombre.toLowerCase().replace(/\s+/g, '-')}
                 </code>
                 <p className="mt-2 text-muted-foreground">
-                  ✅ Los clientes escanearán este QR y verán el menú para pedir
+                  Los clientes escanearán este QR y verán el menú para pedir
                 </p>
               </div>
             )}
@@ -255,10 +255,10 @@ export function QRManager() {
                   </p>
                   <div className="flex items-center justify-center gap-4 mt-2">
                     <Badge variant="outline" className="text-[10px]">
-                      📱 Abre el menú
+                      Abre el menú
                     </Badge>
                     <Badge variant="outline" className="text-[10px]">
-                      🍽️ Pide desde tu mesa
+                      Pide desde tu mesa
                     </Badge>
                   </div>
                 </div>

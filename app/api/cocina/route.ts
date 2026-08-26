@@ -1,4 +1,3 @@
-// app/api/cocina/route.ts
 import { NextResponse, NextRequest } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { requireTenantAuth } from '@/lib/auth'
@@ -8,28 +7,24 @@ export async function GET(req: NextRequest) {
     const { user, error } = requireTenantAuth(req)
     if (error) return error
 
-    const { searchParams } = new URL(req.url)
-    const estado = searchParams.get('estado') || 'en_cocina'
-
-    // Obtener pedidos en cocina
     const { data: pedidos } = await supabase
       .from('pedidos')
       .select(`
         *,
         mesas!mesa_id (nombre),
-        usuarios!mesero_id (nombre)
+        usuarios!mesero_id (nombre),
+        cocinero:usuarios!cocinero_id (nombre)
       `)
       .eq('tenant_id', user.tenantId)
-      .in('estado', ['en_cocina', 'listo'])
+      .in('estado', ['en_espera_cocina', 'en_preparacion', 'listo'])
       .order('fecha_creacion', { ascending: true })
 
-    // Obtener items para cada pedido
-    const pedidosConItems = await Promise.all((pedidos || []).map(async (p) => {
+    const pedidosConItems = await Promise.all((pedidos || []).map(async (p: any) => {
       const { data: items } = await supabase
         .from('pedido_items')
         .select('*')
         .eq('pedido_id', p.id)
-        .in('estado', ['pendiente', 'en_cocina', 'listo'])
+        .in('estado', ['pendiente', 'en_preparacion', 'listo'])
 
       const segundosTranscurridos = p.fecha_creacion
         ? Math.floor((Date.now() - new Date(p.fecha_creacion).getTime()) / 1000)
@@ -39,10 +34,12 @@ export async function GET(req: NextRequest) {
         ...p,
         mesa_nombre: p.mesas?.nombre || null,
         mesero_nombre: p.usuarios?.nombre || null,
+        cocinero_nombre: p.cocinero?.nombre || null,
         items: items || [],
         segundos_transcurridos: segundosTranscurridos,
         mesas: undefined,
         usuarios: undefined,
+        cocinero: undefined,
       }
     }))
 
@@ -64,8 +61,59 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: 'pedido_id o item_id requerido' }, { status: 400 })
     }
 
+    if (pedido_id) {
+      const { data: pedidoActual } = await supabase
+        .from('pedidos')
+        .select('id, estado, cocinero_id')
+        .eq('id', pedido_id)
+        .eq('tenant_id', user.tenantId)
+        .single()
+
+      if (!pedidoActual) {
+        return NextResponse.json({ error: 'Pedido no encontrado' }, { status: 404 })
+      }
+
+      const esAdmin = user.rol === 'dueno' || user.rol === 'gerente'
+      const tomadoPorMi = pedidoActual.cocinero_id === user.userId
+      const sinAsignar = !pedidoActual.cocinero_id
+
+      if (!sinAsignar && !tomadoPorMi && !esAdmin) {
+        return NextResponse.json(
+          { error: 'Solo el cocinero asignado o un administrador puede marcar este pedido' },
+          { status: 403 }
+        )
+      }
+    }
+
     if (item_id) {
-      // Marcar item como listo
+      const { data: itemPedido } = await supabase
+        .from('pedido_items')
+        .select('id, pedido_id')
+        .eq('id', item_id)
+        .single()
+
+      if (itemPedido?.pedido_id) {
+        const { data: pedidoActual } = await supabase
+          .from('pedidos')
+          .select('id, estado, cocinero_id')
+          .eq('id', itemPedido.pedido_id)
+          .eq('tenant_id', user.tenantId)
+          .single()
+
+        if (pedidoActual) {
+          const esAdmin = user.rol === 'dueno' || user.rol === 'gerente'
+          const tomadoPorMi = pedidoActual.cocinero_id === user.userId
+          const sinAsignar = !pedidoActual.cocinero_id
+
+          if (!sinAsignar && !tomadoPorMi && !esAdmin) {
+            return NextResponse.json(
+              { error: 'Solo el cocinero asignado puede marcar items de este pedido' },
+              { status: 403 }
+            )
+          }
+        }
+      }
+
       const { error: itemError } = await supabase
         .from('pedido_items')
         .update({ estado: 'listo' })
@@ -73,11 +121,10 @@ export async function PATCH(req: NextRequest) {
 
       if (itemError) throw itemError
 
-      // Verificar si todos los items están listos
       const { data: items } = await supabase
         .from('pedido_items')
         .select('estado')
-        .eq('pedido_id', pedido_id)
+        .eq('pedido_id', pedido_id || itemPedido?.pedido_id)
 
       const todosListos = items?.every(i => i.estado === 'listo')
 
@@ -86,9 +133,10 @@ export async function PATCH(req: NextRequest) {
           .from('pedidos')
           .update({
             estado: 'listo',
+            fecha_listo: new Date().toISOString(),
             fecha_actualizacion: new Date().toISOString()
           })
-          .eq('id', pedido_id)
+          .eq('id', pedido_id || itemPedido?.pedido_id)
           .eq('tenant_id', user.tenantId)
       }
 
@@ -96,17 +144,17 @@ export async function PATCH(req: NextRequest) {
     }
 
     if (pedido_id) {
-      // Marcar todos los items como listos
       await supabase
         .from('pedido_items')
         .update({ estado: 'listo' })
         .eq('pedido_id', pedido_id)
-        .in('estado', ['pendiente', 'en_cocina'])
+        .in('estado', ['pendiente', 'en_preparacion'])
 
       await supabase
         .from('pedidos')
         .update({
           estado: 'listo',
+          fecha_listo: new Date().toISOString(),
           fecha_actualizacion: new Date().toISOString()
         })
         .eq('id', pedido_id)

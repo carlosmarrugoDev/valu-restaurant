@@ -96,7 +96,7 @@ export function Checkout() {
       })
       const data = await res.json()
       if (res.ok) {
-        toast.success(`✅ Pedido cobrado: ${currencyDetailed(total)}`)
+        toast.success(`Pedido cobrado: ${currencyDetailed(total)}`)
         await loadPedidos()
         await loadHistorial()
         setPedidoSeleccionado(null)
@@ -135,7 +135,7 @@ export function Checkout() {
   }
 
   const reimprimirTicket = async (pedido: any) => {
-    toast.info(`🖨️ Reimprimiendo ticket de ${pedido.mesa_nombre || 'mesa'}`, {
+    toast.info(`Reimprimiendo ticket de ${pedido.mesa_nombre || 'mesa'}`, {
       duration: 3000,
     })
     // Aquí iría la lógica de impresión real
@@ -230,7 +230,7 @@ export function Checkout() {
                   </CardTitle>
                   <CardDescription>
                     {items.length} ítems · Mesero: {pedidoSeleccionado.mesero_nombre || '—'}
-                    <Badge variant="secondary" className="ml-2 text-xs">✅ Listo</Badge>
+                    <Badge variant="secondary" className="ml-2 text-xs">Listo</Badge>
                   </CardDescription>
                 </CardHeader>
                 <CardContent>

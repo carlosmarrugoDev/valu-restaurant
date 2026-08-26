@@ -16,6 +16,7 @@ import {
   QrCode,
   BookOpen,
   UserCheck,
+  Clock,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
@@ -37,6 +38,7 @@ import { CashRegister } from './cash-register'
 import { SimpleModule } from './simple-module'
 import { ProductManager } from '@/components/products/product-manager'
 import { QRManager } from './qr-manager'
+import { Turns } from './turns'
 import { useAuth } from '@/components/auth/auth-context'
 
 export type NavItem = {
@@ -59,6 +61,7 @@ export const NAV_ITEMS: NavItem[] = [
   { id: 'personal', label: 'Personal', icon: Users },
   { id: 'asignar', label: 'Asignar Mesero', icon: UserCheck },
   { id: 'qr', label: 'Código QR', icon: QrCode },
+  { id: 'turnos', label: 'Turnos', icon: Clock },
   { id: 'configuracion', label: 'Configuración', icon: Settings },
 ]
 
@@ -131,6 +134,7 @@ export function AppShell() {
             {currentActive === 'personal' && <Employees />}
             {currentActive === 'asignar' && <AssignWaiter />}
             {currentActive === 'qr' && <QRManager />}
+            {currentActive === 'turnos' && <Turns />}
             {currentActive === 'configuracion' && (
               <SimpleModule
                 title="Configuración"

@@ -27,7 +27,7 @@ import {
 import { Separator } from '@/components/ui/separator'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { currency } from '@/lib/utils'
+import { currency } from '@/lib/data'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/components/auth/auth-context'
 
@@ -163,7 +163,7 @@ export function BuyerCatalog() {
             Modo Comprador
           </Badge>
           <h1 className="font-display text-3xl md:text-4xl font-bold text-white tracking-tight">
-            ¡Hola{user?.nombre ? `, ${user.nombre}` : ''}! 👋
+            ¡Hola{user?.nombre ? `, ${user.nombre}` : ''}!
           </h1>
           <p className="mt-2 text-white/85 text-base md:text-lg">
             Explora nuestro catálogo de {productos.filter((p) => p.disponible).length} productos
@@ -186,7 +186,7 @@ export function BuyerCatalog() {
             className="pl-9 h-11"
           />
         </div>
-        <Select value={orden} onValueChange={setOrden}>
+        <Select value={orden} onValueChange={(val) => setOrden(val ?? 'recientes')}>
           <SelectTrigger className="w-44 h-11">
             <SelectValue placeholder="Ordenar" />
           </SelectTrigger>
