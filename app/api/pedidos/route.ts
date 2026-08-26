@@ -270,15 +270,25 @@ export async function PATCH(req: NextRequest) {
       motivo,
     } = body
 
-    const { data: pedidoActual } = await supabase
+    const { data: pedidoActual, error: pError } = await supabase
       .from('pedidos')
-      .select('*, pedido_items(*)')
+      .select('*')
       .eq('id', id)
       .eq('tenant_id', user.tenantId)
-      .single()
+      .maybeSingle()
 
-    if (!pedidoActual) {
+    if (pError || !pedidoActual) {
       return NextResponse.json({ error: 'Pedido no encontrado' }, { status: 404 })
+    }
+
+    const { data: itemsPedido } = await supabase
+      .from('pedido_items')
+      .select('*')
+      .eq('pedido_id', id)
+
+    const pedidoConItems = {
+      ...pedidoActual,
+      pedido_items: itemsPedido || [],
     }
 
     const updates: Record<string, any> = {
@@ -297,7 +307,7 @@ export async function PATCH(req: NextRequest) {
     let actualizarItemsAPendiente = false
 
     if (accion === 'tomar_preparacion') {
-      if (!['en_cocina', 'en_espera_cocina'].includes(pedidoActual.estado)) {
+      if (!['en_cocina', 'en_espera_cocina'].includes(pedidoConItems.estado)) {
         return NextResponse.json(
           { error: 'El pedido no está disponible para tomar' },
           { status: 409 }
@@ -307,7 +317,7 @@ export async function PATCH(req: NextRequest) {
       updates.cocinero_id = user.userId
       updates.fecha_tomado = new Date().toISOString()
     } else if (accion === 'liberar_pedido') {
-      if (pedidoActual.cocinero_id !== user.userId && user.rol !== 'dueno' && user.rol !== 'gerente') {
+      if (pedidoConItems.cocinero_id !== user.userId && user.rol !== 'dueno' && user.rol !== 'gerente') {
         return NextResponse.json(
           { error: 'No puedes liberar un pedido tomado por otro cocinero' },
           { status: 403 }
@@ -317,10 +327,10 @@ export async function PATCH(req: NextRequest) {
       updates.cocinero_id = null
       updates.fecha_tomado = null
     } else if (estado) {
-      if (estado === 'pagado' && pedidoActual.estado === 'pendiente_pago') {
+      if (estado === 'pagado' && pedidoConItems.estado === 'pendiente_pago') {
         const valStock = await validarStockPedido(
           user.tenantId!,
-          (pedidoActual.pedido_items || []).map((it: any) => ({
+          (pedidoConItems.pedido_items || []).map((it: any) => ({
             producto_id: it.producto_id,
             cantidad: it.cantidad,
           }))
@@ -332,31 +342,31 @@ export async function PATCH(req: NextRequest) {
           )
         }
         updates.estado = 'en_espera_cocina'
-        updates.hora_apertura = pedidoActual.hora_apertura || new Date().toISOString()
+        updates.hora_apertura = pedidoConItems.hora_apertura || new Date().toISOString()
         descontarInsumos = true
         actualizarItemsAPendiente = true
-      } else if (estado === 'listo' && ['en_cocina', 'en_preparacion', 'en_espera_cocina'].includes(pedidoActual.estado)) {
+      } else if (estado === 'listo' && ['en_cocina', 'en_preparacion', 'en_espera_cocina'].includes(pedidoConItems.estado)) {
         updates.estado = 'listo'
         updates.fecha_listo = new Date().toISOString()
-      } else if (estado === 'entregado' && pedidoActual.estado === 'listo') {
+      } else if (estado === 'entregado' && pedidoConItems.estado === 'listo') {
         updates.estado = 'entregado'
         updates.fecha_entrega = new Date().toISOString()
-        if (pedidoActual.es_qr) {
+        if (pedidoConItems.es_qr) {
           liberarMesa = true
           updates.hora_cierre = new Date().toISOString()
         }
-      } else if (estado === 'pagado' && pedidoActual.estado === 'listo') {
+      } else if (estado === 'pagado' && pedidoConItems.estado === 'listo') {
         updates.estado = 'pagado'
         updates.hora_cierre = new Date().toISOString()
         liberarMesa = true
-      } else if (estado === 'cancelado' && pedidoActual.estado !== 'cancelado') {
+      } else if (estado === 'cancelado' && pedidoConItems.estado !== 'cancelado') {
         updates.estado = 'cancelado'
         updates.motivo_cancelacion = motivo || 'Cancelado por usuario'
-        if (!['pendiente_pago'].includes(pedidoActual.estado)) {
+        if (!['pendiente_pago'].includes(pedidoConItems.estado)) {
           revertirInsumos = true
         }
         liberarMesa = true
-      } else if (estado === 'pagado' && pedidoActual.estado === 'entregado') {
+      } else if (estado === 'pagado' && pedidoConItems.estado === 'entregado') {
         updates.estado = 'pagado'
         updates.hora_cierre = new Date().toISOString()
       } else {
@@ -365,7 +375,7 @@ export async function PATCH(req: NextRequest) {
     }
 
     if (descontarInsumos) {
-      const items = pedidoActual.pedido_items || []
+      const items = pedidoConItems.pedido_items || []
       const resultadoDescuento = await descontarInsumosPorPedido(
         user.tenantId!,
         user.userId,
@@ -384,7 +394,7 @@ export async function PATCH(req: NextRequest) {
     }
 
     if (revertirInsumos) {
-      const items = pedidoActual.pedido_items || []
+      const items = pedidoConItems.pedido_items || []
       const resultado = await revertirDescuentoInsumos(
         user.tenantId!,
         user.userId,
@@ -399,39 +409,82 @@ export async function PATCH(req: NextRequest) {
       }
     }
 
-    const { data: pedido, error: updateError } = await supabase
-      .from('pedidos')
-      .update(updates)
-      .eq('id', id)
-      .eq('tenant_id', user.tenantId)
-      .select()
-      .single()
+    let pedido: any = null
+    try {
+      const { data: pedidoActualizado, error: updateError } = await supabase
+        .from('pedidos')
+        .update(updates as any)
+        .eq('id', id)
+        .eq('tenant_id', user.tenantId)
+        .select()
+        .maybeSingle()
 
-    if (updateError) throw updateError
+      if (updateError) {
+        const basicUpdates: Record<string, any> = { fecha_actualizacion: updates.fecha_actualizacion }
+        if (updates.estado) basicUpdates.estado = updates.estado
+        if (updates.notas !== undefined) basicUpdates.notas = updates.notas
+        if (updates.descuento !== undefined) basicUpdates.descuento = updates.descuento
+        if (updates.propina !== undefined) basicUpdates.propina = updates.propina
+        if (updates.metodo_pago !== undefined) basicUpdates.metodo_pago = updates.metodo_pago
+        if (updates.tiempo_estimado !== undefined) basicUpdates.tiempo_estimado = updates.tiempo_estimado
 
-    if (actualizarItemsAPendiente) {
-      await supabase
-        .from('pedido_items')
-        .update({ estado: 'pendiente' })
-        .eq('pedido_id', id)
-        .eq('estado', 'pendiente_pago')
+        const { data: fallback, error: fallbackError } = await supabase
+          .from('pedidos')
+          .update(basicUpdates as any)
+          .eq('id', id)
+          .eq('tenant_id', user.tenantId)
+          .select()
+          .maybeSingle()
+
+        if (fallbackError) throw fallbackError
+        pedido = fallback
+      } else {
+        pedido = pedidoActualizado
+      }
+    } catch (e: any) {
+      throw e
     }
 
-    if (liberarMesa && pedidoActual.mesa_id) {
-      await supabase
-        .from('mesas')
-        .update({ estado: 'libre', mesero_id: null, fecha_actualizacion: new Date().toISOString() })
-        .eq('id', pedidoActual.mesa_id)
+    if (!pedido) {
+      return NextResponse.json({ error: 'No se pudo actualizar el pedido' }, { status: 500 })
+    }
 
-      await supabase
-        .from('asignaciones_mesa')
-        .update({ activa: false })
-        .eq('mesa_id', pedidoActual.mesa_id)
-        .eq('tenant_id', user.tenantId)
+    if (actualizarItemsAPendiente) {
+      try {
+        await supabase
+          .from('pedido_items')
+          .update({ estado: 'pendiente' })
+          .eq('pedido_id', id)
+          .eq('estado', 'pendiente_pago')
+      } catch { /* no-op */ }
+    }
+
+    if (liberarMesa && pedidoConItems.mesa_id) {
+      try {
+        await supabase
+          .from('mesas')
+          .update({ estado: 'libre', fecha_actualizacion: new Date().toISOString() })
+          .eq('id', pedidoConItems.mesa_id)
+      } catch {
+        try {
+          await supabase
+            .from('mesas')
+            .update({ estado: 'libre', fecha_actualizacion: new Date().toISOString() })
+            .eq('id', pedidoConItems.mesa_id)
+        } catch { /* no-op */ }
+      }
+
+      try {
+        await supabase
+          .from('asignaciones_mesa')
+          .update({ activa: false })
+          .eq('mesa_id', pedidoConItems.mesa_id)
+          .eq('tenant_id', user.tenantId)
+      } catch { /* no-op */ }
     }
 
     return NextResponse.json({ success: true, pedido })
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ error: error.message || 'Error del servidor' }, { status: 500 })
   }
 }

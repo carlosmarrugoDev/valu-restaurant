@@ -70,17 +70,20 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: 'pedido_id o item_id requerido' }, { status: 400 })
     }
 
+    let pedidoAsociado: any = null
+
     if (pedido_id) {
-      const { data: pedidoActual } = await supabase
+      const { data: pedidoActual, error: pErr } = await supabase
         .from('pedidos')
-        .select('id, estado, cocinero_id')
+        .select('*')
         .eq('id', pedido_id)
         .eq('tenant_id', user.tenantId)
-        .single()
+        .maybeSingle()
 
-      if (!pedidoActual) {
+      if (pErr || !pedidoActual) {
         return NextResponse.json({ error: 'Pedido no encontrado' }, { status: 404 })
       }
+      pedidoAsociado = pedidoActual
 
       const esAdmin = user.rol === 'dueno' || user.rol === 'gerente'
       const tomadoPorMi = pedidoActual.cocinero_id === user.userId
@@ -97,28 +100,31 @@ export async function PATCH(req: NextRequest) {
     if (item_id) {
       const { data: itemPedido } = await supabase
         .from('pedido_items')
-        .select('id, pedido_id')
+        .select('*')
         .eq('id', item_id)
-        .single()
+        .maybeSingle()
 
       if (itemPedido?.pedido_id) {
-        const { data: pedidoActual } = await supabase
-          .from('pedidos')
-          .select('id, estado, cocinero_id')
-          .eq('id', itemPedido.pedido_id)
-          .eq('tenant_id', user.tenantId)
-          .single()
+        if (!pedidoAsociado) {
+          const { data: pedidoActual } = await supabase
+            .from('pedidos')
+            .select('*')
+            .eq('id', itemPedido.pedido_id)
+            .eq('tenant_id', user.tenantId)
+            .maybeSingle()
 
-        if (pedidoActual) {
-          const esAdmin = user.rol === 'dueno' || user.rol === 'gerente'
-          const tomadoPorMi = pedidoActual.cocinero_id === user.userId
-          const sinAsignar = !pedidoActual.cocinero_id
+          if (pedidoActual) {
+            pedidoAsociado = pedidoActual
+            const esAdmin = user.rol === 'dueno' || user.rol === 'gerente'
+            const tomadoPorMi = pedidoActual.cocinero_id === user.userId
+            const sinAsignar = !pedidoActual.cocinero_id
 
-          if (!sinAsignar && !tomadoPorMi && !esAdmin) {
-            return NextResponse.json(
-              { error: 'Solo el cocinero asignado puede marcar items de este pedido' },
-              { status: 403 }
-            )
+            if (!sinAsignar && !tomadoPorMi && !esAdmin) {
+              return NextResponse.json(
+                { error: 'Solo el cocinero asignado puede marcar items de este pedido' },
+                { status: 403 }
+              )
+            }
           }
         }
       }
@@ -130,50 +136,77 @@ export async function PATCH(req: NextRequest) {
 
       if (itemError) throw itemError
 
+      const pedidoIdRef = pedido_id || itemPedido?.pedido_id
       const { data: items } = await supabase
         .from('pedido_items')
         .select('estado')
-        .eq('pedido_id', pedido_id || itemPedido?.pedido_id)
+        .eq('pedido_id', pedidoIdRef)
 
       const todosListos = items?.every(i => i.estado === 'listo')
 
-      if (todosListos) {
-        await supabase
-          .from('pedidos')
-          .update({
-            estado: 'listo',
-            fecha_listo: new Date().toISOString(),
-            fecha_actualizacion: new Date().toISOString()
-          })
-          .eq('id', pedido_id || itemPedido?.pedido_id)
-          .eq('tenant_id', user.tenantId)
+      if (todosListos && pedidoIdRef) {
+        const id = pedidoIdRef
+        const tenantId = user.tenantId
+        const ahora = new Date().toISOString()
+        try {
+          await supabase
+            .from('pedidos')
+            .update({
+              estado: 'listo',
+              fecha_listo: ahora,
+              fecha_actualizacion: ahora,
+            } as any)
+            .eq('id', id)
+            .eq('tenant_id', tenantId)
+        } catch {
+          await supabase
+            .from('pedidos')
+            .update({
+              estado: 'listo',
+              fecha_actualizacion: ahora,
+            } as any)
+            .eq('id', id)
+            .eq('tenant_id', tenantId)
+        }
       }
 
       return NextResponse.json({ success: true, message: 'Item marcado como listo' })
     }
 
-    if (pedido_id) {
+    if (pedido_id && pedidoAsociado) {
       await supabase
         .from('pedido_items')
         .update({ estado: 'listo' })
         .eq('pedido_id', pedido_id)
         .in('estado', ['pendiente_pago', 'pendiente', 'en_cocina', 'en_preparacion'])
 
-      await supabase
-        .from('pedidos')
-        .update({
-          estado: 'listo',
-          fecha_listo: new Date().toISOString(),
-          fecha_actualizacion: new Date().toISOString()
-        })
-        .eq('id', pedido_id)
-        .eq('tenant_id', user.tenantId)
+      const ahora = new Date().toISOString()
+      try {
+        await supabase
+          .from('pedidos')
+          .update({
+            estado: 'listo',
+            fecha_listo: ahora,
+            fecha_actualizacion: ahora,
+          } as any)
+          .eq('id', pedido_id)
+          .eq('tenant_id', user.tenantId)
+      } catch {
+        await supabase
+          .from('pedidos')
+          .update({
+            estado: 'listo',
+            fecha_actualizacion: ahora,
+          } as any)
+          .eq('id', pedido_id)
+          .eq('tenant_id', user.tenantId)
+      }
 
       return NextResponse.json({ success: true, message: 'Pedido marcado como listo' })
     }
 
     return NextResponse.json({ error: 'Operación inválida' }, { status: 400 })
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ error: error.message || 'Error del servidor' }, { status: 500 })
   }
 }

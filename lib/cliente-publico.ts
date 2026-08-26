@@ -74,10 +74,7 @@ export async function pedidoConItems(pedidoId: string) {
   try {
     const { data: pedido, error: pedidoError } = await supabase
       .from('pedidos')
-      .select(`
-        *,
-        mesas!pedidos_mesa_id_fkey (nombre)
-      `)
+      .select('*')
       .eq('id', pedidoId)
       .single()
 
@@ -88,22 +85,36 @@ export async function pedidoConItems(pedidoId: string) {
       .select('*')
       .eq('pedido_id', pedidoId)
 
+    let mesa_nombre = null
     let cocinero_nombre = null
-    if ((pedido as any).cocinero_id) {
-      const { data: cocinero } = await supabase
-        .from('usuarios')
-        .select('nombre')
-        .eq('id', (pedido as any).cocinero_id)
-        .maybeSingle()
-      cocinero_nombre = cocinero?.nombre || null
-    }
+
+    try {
+      if ((pedido as any).mesa_id) {
+        const { data: mesa } = await supabase
+          .from('mesas')
+          .select('nombre')
+          .eq('id', (pedido as any).mesa_id)
+          .maybeSingle()
+        if (mesa) mesa_nombre = mesa.nombre || null
+      }
+    } catch { /* no-op */ }
+
+    try {
+      if ((pedido as any).cocinero_id) {
+        const { data: cocinero } = await supabase
+          .from('usuarios')
+          .select('nombre')
+          .eq('id', (pedido as any).cocinero_id)
+          .maybeSingle()
+        if (cocinero) cocinero_nombre = cocinero.nombre || null
+      }
+    } catch { /* no-op */ }
 
     return {
       ...pedido,
-      mesa_nombre: (pedido as any).mesas?.nombre || null,
+      mesa_nombre,
       cocinero_nombre,
       items: items || [],
-      mesas: undefined,
     }
   } catch {
     return null
