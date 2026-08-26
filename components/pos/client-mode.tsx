@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import {
   QrCode, ShoppingCart, Search, Package, Loader2, X, Plus, Minus,
   Banknote, CreditCard, Smartphone, CheckCircle2, Clock, ChefHat,
-  Bell, Ticket, ArrowLeft
+  Bell, Ticket, ArrowLeft, ClipboardList
 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -27,7 +27,7 @@ const metodosPago = [
   { id: 'digital', label: 'Transferencia', icon: Smartphone },
 ]
 
-type EstadoPedido = 'pendiente_pago' | 'en_cocina' | 'listo' | 'pagado' | 'cancelado'
+type EstadoPedido = 'pendiente_pago' | 'en_espera_cocina' | 'en_cocina' | 'en_preparacion' | 'listo' | 'pagado' | 'cancelado'
 
 interface PedidoActivo {
   id: string
@@ -98,7 +98,7 @@ export function ClientMode() {
             try {
               if ('vibrate' in navigator) navigator.vibrate([200, 100, 200, 100, 400])
             } catch {}
-            toast.success('🔔 ¡Tu pedido está listo!', { duration: 8000 })
+            toast.success('Tu pedido esta listo!', { duration: 8000 })
           }
           setPedidoActivo(actualizado)
           sessionStorage.setItem('pedido_activo', JSON.stringify(actualizado))
@@ -259,7 +259,7 @@ export function ClientMode() {
   }
 
   const limpiarPedidoActivo = () => {
-    if (!['en_cocina', 'listo', 'pendiente_pago'].includes(pedidoActivo?.estado || '')) {
+    if (!['en_espera_cocina', 'en_cocina', 'en_preparacion', 'listo', 'pendiente_pago'].includes(pedidoActivo?.estado || '')) {
       setPedidoActivo(null)
       sessionStorage.removeItem('pedido_activo')
       setPollingPedidos(false)
@@ -274,7 +274,7 @@ export function ClientMode() {
     )
   }
 
-  if (pedidoActivo && ['en_cocina', 'listo', 'pendiente_pago'].includes(pedidoActivo.estado)) {
+  if (pedidoActivo && ['en_espera_cocina', 'en_cocina', 'en_preparacion', 'listo', 'pendiente_pago'].includes(pedidoActivo.estado)) {
     return (
       <div className="max-w-2xl mx-auto space-y-6">
         <div className="flex items-center justify-between">
@@ -294,9 +294,11 @@ export function ClientMode() {
           'overflow-hidden border-2 transition-colors',
           pedidoActivo.estado === 'listo'
             ? 'border-green-500 bg-green-500/5'
-            : pedidoActivo.estado === 'en_cocina'
+            : pedidoActivo.estado === 'en_cocina' || pedidoActivo.estado === 'en_preparacion'
               ? 'border-amber-500/40 bg-amber-500/5'
-              : 'border-border'
+              : pedidoActivo.estado === 'en_espera_cocina'
+                ? 'border-blue-500/40 bg-blue-500/5'
+                : 'border-border'
         )}>
           <CardContent className="p-6 space-y-5">
             <div className="flex items-center justify-between text-sm">
@@ -353,9 +355,11 @@ export function ClientMode() {
               'flex items-center gap-3 p-4 rounded-xl text-sm',
               pedidoActivo.estado === 'listo'
                 ? 'bg-green-500/10 text-green-700'
-                : pedidoActivo.estado === 'en_cocina'
+                : pedidoActivo.estado === 'en_cocina' || pedidoActivo.estado === 'en_preparacion'
                   ? 'bg-amber-500/10 text-amber-700'
-                  : 'bg-muted text-muted-foreground'
+                  : pedidoActivo.estado === 'en_espera_cocina'
+                    ? 'bg-blue-500/10 text-blue-700'
+                    : 'bg-muted text-muted-foreground'
             )}>
               <StatusIcon estado={pedidoActivo.estado} />
               <div className="flex-1">
@@ -363,9 +367,11 @@ export function ClientMode() {
                 <p className="text-xs opacity-80">
                   {pedidoActivo.estado === 'listo'
                     ? 'Muestra este comprobante para reclamar tu pedido'
-                    : pedidoActivo.estado === 'en_cocina'
+                    : pedidoActivo.estado === 'en_cocina' || pedidoActivo.estado === 'en_preparacion'
                       ? 'Cocina está preparando tu pedido. Te avisaremos cuando esté listo.'
-                      : 'Confirmando pago...'}
+                      : pedidoActivo.estado === 'en_espera_cocina'
+                        ? 'Pedido confirmado. En cola para ser preparado por cocina.'
+                        : 'Confirmando pago...'}
                 </p>
               </div>
               {pedidoActivo.estado === 'listo' && (
@@ -587,7 +593,9 @@ export function ClientMode() {
 function EstadoBadge({ estado }: { estado: EstadoPedido }) {
   const map: Record<EstadoPedido, { label: string; variant: any }> = {
     pendiente_pago: { label: 'Pago pendiente', variant: 'secondary' },
+    en_espera_cocina: { label: 'En cola de cocina', variant: 'default' },
     en_cocina: { label: 'En preparación', variant: 'default' },
+    en_preparacion: { label: 'En preparación', variant: 'default' },
     listo: { label: '¡Listo!', variant: 'default' },
     pagado: { label: 'Pagado', variant: 'secondary' },
     cancelado: { label: 'Cancelado', variant: 'destructive' },
@@ -596,7 +604,8 @@ function EstadoBadge({ estado }: { estado: EstadoPedido }) {
   return (
     <Badge variant={cfg.variant} className={cn(
       estado === 'listo' && 'bg-green-600 hover:bg-green-600 text-white',
-      estado === 'en_cocina' && 'bg-amber-600 hover:bg-amber-600 text-white',
+      (estado === 'en_cocina' || estado === 'en_preparacion') && 'bg-amber-600 hover:bg-amber-600 text-white',
+      estado === 'en_espera_cocina' && 'bg-blue-600 hover:bg-blue-600 text-white',
     )}>
       {cfg.label}
     </Badge>
@@ -608,7 +617,10 @@ function StatusIcon({ estado }: { estado: EstadoPedido }) {
     case 'listo':
       return <CheckCircle2 className="size-6 shrink-0" />
     case 'en_cocina':
+    case 'en_preparacion':
       return <ChefHat className="size-6 shrink-0 animate-pulse" />
+    case 'en_espera_cocina':
+      return <ClipboardList className="size-6 shrink-0" />
     default:
       return <Clock className="size-6 shrink-0" />
   }
@@ -617,7 +629,11 @@ function StatusIcon({ estado }: { estado: EstadoPedido }) {
 function StatusLabel(estado: EstadoPedido): string {
   switch (estado) {
     case 'listo': return 'Tu pedido está listo para reclamar'
-    case 'en_cocina': return 'En cocina — lo estamos preparando'
+    case 'en_cocina':
+    case 'en_preparacion':
+      return 'En cocina — lo estamos preparando'
+    case 'en_espera_cocina':
+      return 'Pedido confirmado — esperando turno en cocina'
     case 'pendiente_pago': return 'Confirmando tu pago'
     default: return 'Procesando'
   }

@@ -15,6 +15,8 @@ export async function GET(req: NextRequest) {
     const estado = searchParams.get('estado')
     const mesaId = searchParams.get('mesa_id')
     const activos = searchParams.get('activos') === 'true'
+    const limitRaw = searchParams.get('limit')
+    const limit = limitRaw ? parseInt(limitRaw, 10) : null
 
     let query = supabase
       .from('pedidos')
@@ -28,6 +30,11 @@ export async function GET(req: NextRequest) {
 
     if (activos) {
       query = query.not('estado', 'in', '(pagado,cancelado,entregado)')
+    } else if (estado === 'historial_hoy') {
+      const hoy = new Date().toISOString().split('T')[0]
+      query = query
+        .gte('fecha_creacion', hoy)
+        .neq('estado', 'cancelado')
     } else if (estado) {
       const estadosLista = estado.split(',').map(s => s.trim()).filter(Boolean)
       if (estadosLista.length > 1) {
@@ -39,7 +46,9 @@ export async function GET(req: NextRequest) {
 
     if (mesaId) query = query.eq('mesa_id', mesaId)
 
-    const { data: pedidos } = await query.order('fecha_creacion', { ascending: false })
+    let pedidosQuery = query.order('fecha_creacion', { ascending: false })
+    if (limit) pedidosQuery = pedidosQuery.limit(limit)
+    const { data: pedidos } = await pedidosQuery
 
     const pedidosConItems = await Promise.all((pedidos || []).map(async (p) => {
       const { data: items } = await supabase
@@ -101,7 +110,7 @@ export async function POST(req: NextRequest) {
     if (countError) throw countError
     const numeroPedido = (count ?? 0) + 1
 
-    const estadoInicial = es_qr ? 'pendiente_pago' : 'en_preparacion'
+    const estadoInicial = es_qr ? 'pendiente_pago' : 'en_espera_cocina'
 
     let meseroAsignado = mesero_id || user.userId
     if (es_qr) {

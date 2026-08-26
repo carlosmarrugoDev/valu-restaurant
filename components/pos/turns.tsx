@@ -87,7 +87,7 @@ export function Turns() {
             mapa.set(cid || 'sin_asignar', { nombre: cnombre, tomados: 0, listos: 0, entrega: 0, total: 0 })
           }
           const r = mapa.get(cid || 'sin_asignar')!
-          if (p.estado === 'en_preparacion' || p.estado === 'listo' || p.estado === 'entregado' || p.estado === 'pagado') r.tomados++
+          if (p.estado === 'en_cocina' || p.estado === 'en_preparacion' || p.estado === 'listo' || p.estado === 'entregado' || p.estado === 'pagado') r.tomados++
           if (p.estado === 'listo' || p.estado === 'entregado' || p.estado === 'pagado') r.listos++
           if (p.estado === 'entregado' || p.estado === 'pagado') r.entrega++
           r.total += p.total || 0
