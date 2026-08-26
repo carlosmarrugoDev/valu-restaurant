@@ -71,29 +71,33 @@ export async function usuarioParaPedidoQr(tenantId: string, mesaId: string): Pro
 }
 
 export async function pedidoConItems(pedidoId: string) {
-  const { data: pedido } = await supabase
-    .from('pedidos')
-    .select(`
-      *,
-      mesas!mesa_id (nombre),
-      cocinero:usuarios!cocinero_id (nombre)
-    `)
-    .eq('id', pedidoId)
-    .single()
+  try {
+    const { data: pedido, error: pedidoError } = await supabase
+      .from('pedidos')
+      .select(`
+        *,
+        mesas!mesa_id (nombre),
+        cocinero:usuarios!cocinero_id (nombre)
+      `)
+      .eq('id', pedidoId)
+      .single()
 
-  if (!pedido) return null
+    if (pedidoError || !pedido) return null
 
-  const { data: items } = await supabase
-    .from('pedido_items')
-    .select('*')
-    .eq('pedido_id', pedidoId)
+    const { data: items } = await supabase
+      .from('pedido_items')
+      .select('*')
+      .eq('pedido_id', pedidoId)
 
-  return {
-    ...pedido,
-    mesa_nombre: pedido.mesas?.nombre || null,
-    cocinero_nombre: (pedido as any).cocinero?.nombre || null,
-    items: items || [],
-    mesas: undefined,
-    cocinero: undefined,
+    return {
+      ...pedido,
+      mesa_nombre: pedido.mesas?.nombre || null,
+      cocinero_nombre: (pedido as any).cocinero?.nombre || null,
+      items: items || [],
+      mesas: undefined,
+      cocinero: undefined,
+    }
+  } catch {
+    return null
   }
 }

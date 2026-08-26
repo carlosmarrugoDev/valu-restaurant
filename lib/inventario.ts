@@ -147,6 +147,7 @@ export async function verificarDisponibilidadProducto(
 
     for (const item of receta.receta_items) {
       const insumo = item.insumos as any;
+      if (!insumo) continue;
       const factor = getFactorToBase(insumo.unidad);
       const stockEnBase = (insumo.stock || 0) * factor;
       
@@ -262,6 +263,7 @@ export async function descontarInsumosPorPedido(
 
     for (const ri of receta.receta_items) {
       const insumo = ri.insumos as any;
+      if (!insumo) continue;
       const factor = getFactorToBase(insumo.unidad);
       
       // Cantidad a descontar convertida a la unidad del insumo

@@ -385,6 +385,9 @@ function ClientPageContent() {
         throw new Error(errData.error || "No se pudo crear el pedido");
       }
       const { pedido } = await pedidoRes.json();
+      if (!pedido || !pedido.id) {
+        throw new Error("Respuesta incompleta del servidor. Intenta de nuevo.");
+      }
       pedidoActivoRef.current = pedido;
       setPedidoActivo(pedido);
       sessionStorage.setItem("pedido_cliente_id", pedido.id);

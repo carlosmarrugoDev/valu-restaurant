@@ -172,9 +172,10 @@ export async function POST(req: NextRequest) {
 
     if (pedidoError) throw pedidoError
 
-    const { error: itemsError } = await supabase
+    const { data: createdItems, error: itemsError } = await supabase
       .from('pedido_items')
       .insert(itemsData.map((item) => ({ ...item, pedido_id: pedido.id })))
+      .select()
 
     if (itemsError) {
       await supabase.from('pedidos').delete().eq('id', pedido.id)
@@ -206,7 +207,13 @@ export async function POST(req: NextRequest) {
       .eq('id', mesa.id)
 
     const detalle = await pedidoConItems(pedido.id)
-    return NextResponse.json({ success: true, pedido: detalle }, { status: 201 })
+    const pedidoRespuesta = detalle || {
+      ...pedido,
+      mesa_nombre: mesa.nombre,
+      cocinero_nombre: null,
+      items: createdItems || [],
+    }
+    return NextResponse.json({ success: true, pedido: pedidoRespuesta }, { status: 201 })
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
