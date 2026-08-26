@@ -54,9 +54,12 @@ export function Checkout() {
       const res = await fetch('/api/pedidos?estado=listo')
       const data = await res.json()
       if (res.ok) {
-        setPedidos(data.pedidos || [])
-        if (data.pedidos?.length > 0 && (!pedidoSeleccionado || !data.pedidos.find((p: any) => p.id === pedidoSeleccionado.id))) {
-          setPedidoSeleccionado(data.pedidos[0])
+        const pedidosPendientes = (data.pedidos || []).filter((p: any) => !p.metodo_pago)
+        setPedidos(pedidosPendientes)
+        if (pedidosPendientes.length > 0 && (!pedidoSeleccionado || !pedidosPendientes.find((p: any) => p.id === pedidoSeleccionado.id))) {
+          setPedidoSeleccionado(pedidosPendientes[0])
+        } else if (pedidosPendientes.length === 0) {
+          setPedidoSeleccionado(null)
         }
       }
     } catch {

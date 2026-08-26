@@ -16,7 +16,6 @@ import {
   QrCode,
   BookOpen,
   UserCheck,
-  Clock,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
@@ -24,7 +23,6 @@ import { Employees } from './employees'
 import { ClientMode } from './client-mode'
 import { Recipes } from './recipes'
 import { AssignWaiter } from './assign-waiter'
-import { QRConfirmacion } from './qr-confirmacion'
 import { type ModuleId, type Role, ROLE_ACCESS } from '@/lib/data'
 import { Sidebar } from './sidebar'
 import { Topbar } from './topbar'
@@ -60,7 +58,6 @@ export const NAV_ITEMS: NavItem[] = [
   { id: 'recetas', label: 'Recetas', icon: BookOpen },
   { id: 'personal', label: 'Personal', icon: Users },
   { id: 'asignar', label: 'Asignar Mesero', icon: UserCheck },
-  { id: 'confirmar', label: 'Confirmar QR', icon: Clock },
   { id: 'qr', label: 'Código QR', icon: QrCode },
   { id: 'configuracion', label: 'Configuración', icon: Settings },
 ]
@@ -133,7 +130,6 @@ export function AppShell() {
             {currentActive === 'recetas' && <Recipes />}
             {currentActive === 'personal' && <Employees />}
             {currentActive === 'asignar' && <AssignWaiter />}
-            {currentActive === 'confirmar' && <QRConfirmacion />}
             {currentActive === 'qr' && <QRManager />}
             {currentActive === 'configuracion' && (
               <SimpleModule

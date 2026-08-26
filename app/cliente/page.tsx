@@ -28,6 +28,9 @@ function ClientPageContent() {
   const [enviando, setEnviando] = useState(false);
   const [mesaEncontrada, setMesaEncontrada] = useState<any>(null);
   const [isOffline, setIsOffline] = useState(false);
+  const [verPago, setVerPago] = useState(false);
+  const [metodoPago, setMetodoPago] = useState("efectivo");
+  const [pagando, setPagando] = useState(false);
 
   // Monitorear conexión
   useEffect(() => {
@@ -106,9 +109,9 @@ function ClientPageContent() {
         const pedidosData = await pedidosRes.json();
         const pedidos = pedidosData.pedidos || [];
 
-        // Buscar pedidos activos (en_cocina o listo)
+        // Buscar pedidos activos (en_cocina o listo o entregado)
         const activos = pedidos.filter(
-          (p: any) => p.estado === "en_cocina" || p.estado === "listo",
+          (p: any) => p.estado === "en_cocina" || p.estado === "listo" || p.estado === "entregado",
         );
 
         // También buscar pedidos recientes pagados (para mostrar el último)
@@ -295,13 +298,19 @@ function ClientPageContent() {
       return;
     }
 
-    setEnviando(true);
+    setVerPago(true);
+  };
+
+  const confirmarPago = async () => {
+    setPagando(true);
     try {
       const pedidoRes = await fetch("/api/pedidos", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           mesa_id: mesaEncontrada.id,
+          es_qr: true,
+          metodo_pago: metodoPago,
           items: cart.map((item) => ({
             producto_id: item.id,
             cantidad: item.cantidad,
@@ -312,9 +321,8 @@ function ClientPageContent() {
 
       if (pedidoRes.ok) {
         const data = await pedidoRes.json();
-        alert("✅ Pedido enviado a cocina");
         setCart([]);
-        // Recargar el pedido activo inmediatamente
+        setVerPago(false);
         setVerEstadoPedido(true);
         // Forzar una verificación rápida
         setTimeout(() => {
@@ -325,7 +333,7 @@ function ClientPageContent() {
             const pedidosData = await pedidosRes.json();
             const pedidos = pedidosData.pedidos || [];
             const activos = pedidos.filter(
-              (p: any) => p.estado === "en_cocina" || p.estado === "listo",
+              (p: any) => p.estado === "en_cocina" || p.estado === "listo" || p.estado === "entregado",
             );
             if (activos.length > 0) {
               setPedidoActivo(activos[0]);
@@ -336,12 +344,12 @@ function ClientPageContent() {
         }, 100);
       } else {
         const errorData = await pedidoRes.json();
-        alert("Error: " + (errorData.error || "No se pudo enviar el pedido"));
+        alert("Error: " + (errorData.error || "No se pudo procesar el pago"));
       }
     } catch (error) {
       alert("Error de conexión. Intenta de nuevo.");
     } finally {
-      setEnviando(false);
+      setPagando(false);
     }
   };
 
@@ -452,155 +460,189 @@ function ClientPageContent() {
     const fase = getFase(pedidoActivo.estado);
 
     // Calcular porcentaje para la barra
-    const porcentaje = fase === 0 ? 0 : (fase / 3) * 100;
+    const porcentaje = fase === 0 ? 0 : (fase / 4) * 100;
 
     return (
       <div className="min-h-screen bg-background p-4 md:p-6">
         <div className="max-w-4xl mx-auto">
-          {/* Botón volver */}
-          <button
-            onClick={volverAlMenu}
-            className="flex items-center gap-2 text-muted-foreground hover:text-foreground mb-6"
-          >
-            <ArrowLeft className="size-4" />
-            {pedidoActivo.estado === "pagado" ||
-            pedidoActivo.estado === "cancelado"
-              ? "Volver al menú"
-              : "Ver menú"}
-          </button>
-
-          {/* Estado del pedido */}
-          <div className="bg-card border border-border rounded-2xl p-6 mb-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="font-display text-xl font-bold">📋 Mi pedido</h2>
-              <span className={`font-semibold ${estadoInfo.color}`}>
-                <EstadoIcon className="inline size-5 mr-1" />
+          {/* Comprobante Digital / Factura */}
+          <div className="bg-white text-black rounded-2xl p-6 mb-6 shadow-xl border-t-8 border-primary">
+            <div className="text-center border-b border-dashed border-gray-300 pb-4 mb-4">
+              <h2 className="font-display text-2xl font-bold uppercase tracking-tighter">Comprobante de Pago</h2>
+              <p className="text-sm text-gray-500">#{pedidoActivo.numero_pedido || pedidoActivo.id.slice(0, 6)}</p>
+              <div className="mt-2 inline-block px-3 py-1 bg-primary/10 text-primary rounded-full text-xs font-bold uppercase">
                 {estadoInfo.label}
-              </span>
+              </div>
             </div>
 
-            <div className="flex items-center gap-4 text-sm text-muted-foreground mb-4 flex-wrap">
-              <span>📍 {mesaNombre}</span>
+            <div className="space-y-3 mb-6">
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-500">Fecha:</span>
+                <span className="font-medium">{new Date(pedidoActivo.fecha_creacion).toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-500">Mesa:</span>
+                <span className="font-medium">{mesaNombre}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-500">Estado:</span>
+                <span className={`font-bold ${estadoInfo.color}`}>{estadoInfo.label}</span>
+              </div>
+            </div>
+
+            <div className="border-b border-dashed border-gray-300 mb-4" />
+
+            <div className="space-y-2 mb-6">
+              {items.map((item: any, i: number) => (
+                <div key={i} className="flex justify-between text-sm">
+                  <span>{item.cantidad}× {item.nombre_producto}</span>
+                  <span className="font-medium">${(item.precio_unitario * item.cantidad).toFixed(2)}</span>
+                </div>
+              ))}
+            </div>
+
+            <div className="border-b border-dashed border-gray-300 mb-4" />
+
+            <div className="flex justify-between items-center font-bold text-xl">
+              <span>Total Pagado</span>
+              <span className="text-primary">${totalPedido.toFixed(2)}</span>
+            </div>
+
+            <div className="mt-8 pt-4 border-t border-gray-100 text-center">
+              <p className="text-xs text-gray-400 mb-2 italic">Muestra este comprobante al recibir tu pedido</p>
+              <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
+                <p className="text-sm font-bold text-gray-600 mb-1">CÓDIGO DE RECLAMO</p>
+                <p className="text-3xl font-black tracking-widest text-primary">
+                  {pedidoActivo.numero_pedido || pedidoActivo.id.slice(0, 6)}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Estado del pedido - Barra de progreso */}
+          <div className="bg-card border border-border rounded-2xl p-6 mb-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="font-display text-lg font-bold">🚀 Seguimiento</h2>
               {pedidoActivo.estado !== "pagado" &&
                 pedidoActivo.estado !== "cancelado" && (
-                  <span className="flex items-center gap-1">
+                  <span className="text-sm font-medium flex items-center gap-1 text-muted-foreground">
                     <Clock className="size-4" />
                     {formatTiempo(tiempoTranscurrido)}
                   </span>
                 )}
-              <span>📋 {items.length} items</span>
-              <span className="text-xs text-muted-foreground/50">
-                #{pedidoActivo.numero_pedido || pedidoActivo.id.slice(0, 6)}
-              </span>
             </div>
 
-            {/* Barra de progreso - similar a cocina */}
             <div className="mt-4 mb-4">
-              <div className="flex items-center justify-between text-xs text-muted-foreground mb-2">
-                <span className={fase >= 1 ? "text-primary font-medium" : ""}>
-                  📝 Pedido recibido
-                </span>
-                <span className={fase >= 2 ? "text-primary font-medium" : ""}>
-                  🍳 En preparación
-                </span>
-                <span className={fase >= 3 ? "text-primary font-medium" : ""}>
-                  ✅ Listo para servir
-                </span>
-                <span className={fase >= 4 ? "text-primary font-medium" : ""}>
-                  🛎️ Entregado
-                </span>
+              <div className="flex items-center justify-between text-[10px] text-muted-foreground mb-2 px-1">
+                <span className={fase >= 1 ? "text-primary font-bold" : ""}>PAGADO</span>
+                <span className={fase >= 2 ? "text-primary font-bold" : ""}>COCINA</span>
+                <span className={fase >= 3 ? "text-primary font-bold" : ""}>LISTO</span>
+                <span className={fase >= 4 ? "text-primary font-bold" : ""}>ENTREGADO</span>
               </div>
               <div className="relative h-2 bg-muted rounded-full overflow-hidden">
                 <div
                   className="absolute h-full bg-primary rounded-full transition-all duration-700 ease-in-out"
                   style={{ width: `${porcentaje}%` }}
                 />
-                {/* Marcadores de fase */}
                 <div className="absolute inset-0 flex justify-between px-1">
-                  <div
-                    className={`size-3 rounded-full -mt-0.5 ${fase >= 1 ? "bg-primary" : "bg-muted"}`}
-                  />
-                  <div
-                    className={`size-3 rounded-full -mt-0.5 ${fase >= 2 ? "bg-primary" : "bg-muted"}`}
-                  />
-                  <div
-                    className={`size-3 rounded-full -mt-0.5 ${fase >= 3 ? "bg-primary" : "bg-muted"}`}
-                  />
+                  <div className={`size-3 rounded-full -mt-0.5 ${fase >= 1 ? "bg-primary" : "bg-muted"}`} />
+                  <div className={`size-3 rounded-full -mt-0.5 ${fase >= 2 ? "bg-primary" : "bg-muted"}`} />
+                  <div className={`size-3 rounded-full -mt-0.5 ${fase >= 3 ? "bg-primary" : "bg-muted"}`} />
+                  <div className={`size-3 rounded-full -mt-0.5 ${fase >= 4 ? "bg-primary" : "bg-muted"}`} />
                 </div>
               </div>
             </div>
 
-            {/* Items del pedido */}
-            <div className="space-y-2 mb-4">
-              {items.map((item: any, i: number) => {
-                const subtotal = item.precio_unitario * item.cantidad;
-                return (
-                  <div
-                    key={i}
-                    className="flex items-center justify-between py-2 border-b border-border/50"
-                  >
-                    <div>
-                      <span className="font-medium">{item.cantidad}×</span>
-                      <span className="ml-2">{item.nombre_producto}</span>
-                      {item.notas && (
-                        <span className="ml-2 text-xs text-muted-foreground">
-                          📝 {item.notas}
-                        </span>
-                      )}
-                    </div>
-                    <span className="text-sm font-medium">
-                      ${subtotal.toFixed(2)}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Total */}
-            <div className="flex items-center justify-between pt-3 border-t border-border font-bold text-lg">
-              <span>Total</span>
-              <span className="text-primary">${totalPedido.toFixed(2)}</span>
-            </div>
-
-            {/* Mensaje según estado */}
-            <div className="mt-4 text-sm">
+            <div className="mt-6 text-center">
               {pedidoActivo.estado === "en_cocina" && (
-                <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-3 text-yellow-600">
-                  🍳 Tu pedido está siendo preparado. Tiempo estimado: 5-10
-                  minutos.
-                </div>
+                <p className="text-sm text-yellow-600 font-medium animate-pulse">
+                  👨‍🍳 Tu pedido está en el fogón...
+                </p>
               )}
               {pedidoActivo.estado === "listo" && (
-                <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-3 text-green-600 animate-pulse">
-                  🛎️ ¡Tu pedido está listo! El mesero lo llevará a tu mesa.
-                </div>
-              )}
-              {pedidoActivo.estado === "pagado" && (
-                <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-3 text-green-600">
-                  ✅ Pedido entregado y pagado. ¡Gracias por tu visita!
-                </div>
-              )}
-              {pedidoActivo.estado === "cancelado" && (
-                <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3 text-red-500">
-                  ❌ Este pedido fue cancelado.
+                <div className="bg-green-500 text-white p-3 rounded-xl font-bold animate-bounce shadow-lg">
+                  🔔 ¡PEDIDO LISTO! Acércate al mostrador
                 </div>
               )}
             </div>
           </div>
 
-          {/* Sugerencias */}
-          {(pedidoActivo.estado === "pagado" ||
-            pedidoActivo.estado === "cancelado") && (
-            <div className="text-center py-8">
-              <p className="text-muted-foreground">¿Quieres pedir algo más?</p>
-              <button
-                onClick={volverAlMenu}
-                className="mt-2 px-6 py-2 bg-primary text-primary-foreground rounded-lg font-medium hover:bg-primary/90"
-              >
-                Volver al menú
-              </button>
+          {/* Botón volver */}
+          <button
+            onClick={volverAlMenu}
+            className="w-full py-4 flex items-center justify-center gap-2 text-muted-foreground hover:text-foreground border border-dashed border-border rounded-xl"
+          >
+            <ArrowLeft className="size-4" />
+            Volver al menú principal
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Vista de Pago Simulado
+  if (verPago) {
+    return (
+      <div className="min-h-screen bg-background p-4 md:p-6">
+        <div className="max-w-md mx-auto">
+          <button
+            onClick={() => setVerPago(false)}
+            className="flex items-center gap-2 text-muted-foreground hover:text-foreground mb-6"
+          >
+            <ArrowLeft className="size-4" />
+            Volver al carrito
+          </button>
+
+          <div className="bg-card border border-border rounded-2xl p-6 shadow-xl">
+            <h2 className="font-display text-2xl font-bold mb-6 text-center">Finalizar Pedido</h2>
+            
+            <div className="space-y-4 mb-8">
+              <div className="flex justify-between items-center p-3 bg-muted rounded-xl">
+                <span className="text-muted-foreground">Total a pagar:</span>
+                <span className="text-xl font-bold text-primary">${totalCart.toFixed(2)}</span>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-muted-foreground">Método de pago (Simulado)</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {['Efectivo', 'Tarjeta', 'Nequi', 'Daviplata'].map((m) => (
+                    <button
+                      key={m}
+                      onClick={() => setMetodoPago(m.toLowerCase())}
+                      className={`p-3 rounded-xl border text-sm font-medium transition-all ${
+                        metodoPago === m.toLowerCase()
+                          ? 'border-primary bg-primary/10 text-primary'
+                          : 'border-border bg-card text-muted-foreground'
+                      }`}
+                    >
+                      {m}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
-          )}
+
+            <button
+              onClick={confirmarPago}
+              disabled={pagando}
+              className="w-full py-4 bg-primary text-primary-foreground rounded-2xl font-bold text-lg shadow-lg hover:shadow-primary/20 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {pagando ? (
+                <>
+                  <Loader2 className="size-5 animate-spin" />
+                  Procesando...
+                </>
+              ) : (
+                <>
+                  <CheckCircle className="size-5" />
+                  CONFIRMAR Y PAGAR
+                </>
+              )}
+            </button>
+            <p className="mt-4 text-[10px] text-center text-muted-foreground uppercase tracking-widest">
+              Pago 100% seguro y directo a cocina
+            </p>
+          </div>
         </div>
       </div>
     );

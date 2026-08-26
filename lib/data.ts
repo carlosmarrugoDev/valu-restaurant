@@ -23,7 +23,6 @@ export type ModuleId =
   | 'recetas'
   | 'personal'
   | 'asignar'
-  | 'confirmar'
   | 'qr'
   | 'configuracion'
 
@@ -42,7 +41,6 @@ export const ROLE_ACCESS: Record<Role, ModuleId[]> = {
     'recetas',
     'personal',
     'asignar',
-    'confirmar',
     'qr',
     'configuracion',
   ],
@@ -59,10 +57,9 @@ export const ROLE_ACCESS: Record<Role, ModuleId[]> = {
     'recetas',
     'personal',
     'asignar',
-    'confirmar',
     'qr',
   ],
-  mesero: ['mesas', 'pedidos', 'cobro', 'confirmar', 'qr'],
+  mesero: ['mesas', 'pedidos', 'cobro', 'qr'],
   cocina: ['cocina'],
   cajero: ['mesas', 'pedidos', 'cobro', 'caja', 'reportes', 'qr'],
 }

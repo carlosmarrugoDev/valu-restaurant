@@ -84,26 +84,26 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Mesa no encontrada' }, { status: 404 })
     }
 
-    // Verificar si el tenant tiene QR directo o necesita confirmación
-    const { data: tenant } = await supabase
-      .from('tenants')
-      .select('qr_confirmacion_directa')
-      .eq('id', user.tenantId)
-      .single()
+    const { count, error: countError } = await supabase
+      .from('pedidos')
+      .select('id', { count: 'exact', head: true })
+      .eq('tenant_id', user.tenantId)
+      .gte('fecha_creacion', new Date().toISOString().split('T')[0])
 
-    const estadoInicial = (es_qr && !tenant?.qr_confirmacion_directa) 
-      ? 'pendiente_confirmacion' 
-      : 'en_cocina'
+    if (countError) throw countError
+    const numeroPedido = (count ?? 0) + 1
+
+    const estadoInicial = es_qr ? 'pendiente_pago' : 'en_cocina'
 
     let meseroAsignado = mesero_id || user.userId
-    if (es_qr && estadoInicial === 'pendiente_confirmacion') {
+    if (es_qr) {
       const { data: asignacion } = await supabase
         .from('asignaciones_mesa')
         .select('usuario_id')
         .eq('mesa_id', mesa_id)
         .eq('activa', true)
         .eq('tenant_id', user.tenantId)
-        .single()
+        .maybeSingle()
 
       if (asignacion) {
         meseroAsignado = asignacion.usuario_id
@@ -172,6 +172,7 @@ export async function POST(req: NextRequest) {
         hora_apertura: new Date().toISOString(),
         es_qr: es_qr || false,
         tiempo_estimado: 10,
+        numero_pedido: numeroPedido,
       })
       .select()
       .single()
@@ -257,22 +258,53 @@ export async function PATCH(req: NextRequest) {
       fecha_actualizacion: new Date().toISOString(),
     }
 
-    if (estado) updates.estado = estado
     if (tiempo_estimado !== undefined) updates.tiempo_estimado = tiempo_estimado
     if (metodo_pago !== undefined) updates.metodo_pago = metodo_pago
     if (propina !== undefined) updates.propina = propina
     if (descuento !== undefined) updates.descuento = descuento
     if (notas !== undefined) updates.notas = notas
 
-    if (estado === 'pagado') {
+    let esPagoQR = false
+
+    if (estado) {
+      if (estado === 'pagado' && pedidoActual.estado === 'pendiente_pago') {
+        esPagoQR = true
+        updates.estado = 'en_cocina'
+        updates.hora_apertura = pedidoActual.hora_apertura || new Date().toISOString()
+      } else {
+        updates.estado = estado
+      }
+    }
+
+    if (estado === 'pagado' && !esPagoQR) {
       updates.hora_cierre = new Date().toISOString()
     }
 
-    // Si se envía a cocina (confirmación QR)
-    if (estado === 'en_cocina' && pedidoActual.estado === 'pendiente_confirmacion') {
-      // Validar stock antes de confirmar
+    if (esPagoQR) {
       const items = pedidoActual.pedido_items || []
-      const resultado = await descontarInsumosPorPedido(
+      const resultadoDescuento = await descontarInsumosPorPedido(
+        user.tenantId!,
+        user.userId,
+        id,
+        items.map((item: any) => ({
+          producto_id: item.producto_id,
+          cantidad: item.cantidad,
+        }))
+      )
+
+      if (!resultadoDescuento.success) {
+        return NextResponse.json(
+          { error: `No hay suficientes insumos: ${resultadoDescuento.error}` },
+          { status: 409 }
+        )
+      }
+    }
+
+    // Si se cancela, registrar motivo y revertir stock
+    if (estado === 'cancelado' && pedidoActual.estado !== 'cancelado') {
+      const items = pedidoActual.pedido_items || []
+      
+      const resultado = await revertirDescuentoInsumos(
         user.tenantId!,
         user.userId,
         id,
@@ -283,37 +315,7 @@ export async function PATCH(req: NextRequest) {
       )
 
       if (!resultado.success) {
-        return NextResponse.json(
-          { error: `No hay suficientes insumos: ${resultado.error}` },
-          { status: 409 }
-        )
-      }
-
-      await supabase
-        .from('pedido_items')
-        .update({ estado: 'en_cocina' })
-        .eq('pedido_id', id)
-    }
-
-    // Si se cancela, registrar motivo y revertir stock
-    if (estado === 'cancelado' && pedidoActual.estado !== 'cancelado') {
-      const items = pedidoActual.pedido_items || []
-      
-      // Solo revertir si ya se había descontado (estaba en cocina o pagado)
-      if (pedidoActual.estado !== 'pendiente_confirmacion') {
-        const resultado = await revertirDescuentoInsumos(
-          user.tenantId!,
-          user.userId,
-          id,
-          items.map((item: any) => ({
-            producto_id: item.producto_id,
-            cantidad: item.cantidad,
-          }))
-        )
-
-        if (!resultado.success) {
-          return NextResponse.json({ error: resultado.error }, { status: 400 })
-        }
+        return NextResponse.json({ error: resultado.error }, { status: 400 })
       }
       
       updates.motivo_cancelacion = body.motivo || 'Cancelado por usuario'
@@ -329,7 +331,7 @@ export async function PATCH(req: NextRequest) {
 
     if (updateError) throw updateError
 
-    if (['pagado', 'cancelado'].includes(estado) && pedidoActual.mesa_id) {
+    if (!esPagoQR && ['pagado', 'cancelado'].includes(updates.estado) && pedidoActual.mesa_id) {
       // Liberar mesa
       await supabase
         .from('mesas')
