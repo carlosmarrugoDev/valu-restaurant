@@ -20,12 +20,7 @@ export async function GET(req: NextRequest) {
 
     let query = supabase
       .from('pedidos')
-      .select(`
-        *,
-        mesas!mesa_id (nombre),
-        usuarios!mesero_id (nombre),
-        cocinero:usuarios!cocinero_id (nombre)
-      `)
+      .select('*')
       .eq('tenant_id', user.tenantId)
 
     if (activos) {
@@ -50,7 +45,24 @@ export async function GET(req: NextRequest) {
     if (limit) pedidosQuery = pedidosQuery.limit(limit)
     const { data: pedidos } = await pedidosQuery
 
-    const pedidosConItems = await Promise.all((pedidos || []).map(async (p) => {
+    const mesaIds = [...new Set((pedidos || []).map(p => p.mesa_id).filter(Boolean))]
+    const meseroIds = [...new Set((pedidos || []).map(p => p.mesero_id).filter(Boolean))]
+    const cocineroIds = [...new Set((pedidos || []).map(p => p.cocinero_id).filter(Boolean))]
+    const todosUserIds = [...new Set([...meseroIds, ...cocineroIds])]
+
+    const { data: mesasMap } = mesaIds.length > 0
+      ? await supabase.from('mesas').select('id, nombre').in('id', mesaIds)
+      : { data: [] }
+    const { data: usuariosMap } = todosUserIds.length > 0
+      ? await supabase.from('usuarios').select('id, nombre').in('id', todosUserIds)
+      : { data: [] }
+
+    const mesasDict: Record<string, string> = {}
+    const usuariosDict: Record<string, string> = {}
+    ;(mesasMap || []).forEach((m: any) => { mesasDict[m.id] = m.nombre })
+    ;(usuariosMap || []).forEach((u: any) => { usuariosDict[u.id] = u.nombre })
+
+    const pedidosConItems = await Promise.all((pedidos || []).map(async (p: any) => {
       const { data: items } = await supabase
         .from('pedido_items')
         .select('*')
@@ -58,13 +70,10 @@ export async function GET(req: NextRequest) {
 
       return {
         ...p,
-        mesa_nombre: p.mesas?.nombre || null,
-        mesero_nombre: p.usuarios?.nombre || null,
-        cocinero_nombre: (p as any).cocinero?.nombre || null,
+        mesa_nombre: mesasDict[p.mesa_id] || null,
+        mesero_nombre: p.mesero_id ? (usuariosDict[p.mesero_id] || null) : null,
+        cocinero_nombre: p.cocinero_id ? (usuariosDict[p.cocinero_id] || null) : null,
         items: items || [],
-        mesas: undefined,
-        usuarios: undefined,
-        cocinero: undefined,
       }
     }))
 

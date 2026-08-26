@@ -9,15 +9,27 @@ export async function GET(req: NextRequest) {
 
     const { data: pedidos } = await supabase
       .from('pedidos')
-      .select(`
-        *,
-        mesas!mesa_id (nombre),
-        usuarios!mesero_id (nombre),
-        cocinero:usuarios!cocinero_id (nombre)
-      `)
+      .select('*')
       .eq('tenant_id', user.tenantId)
       .in('estado', ['en_cocina', 'en_espera_cocina', 'en_preparacion', 'listo'])
       .order('fecha_creacion', { ascending: true })
+
+    const mesaIds = [...new Set((pedidos || []).map((p: any) => p.mesa_id).filter(Boolean))]
+    const meseroIds = [...new Set((pedidos || []).map((p: any) => p.mesero_id).filter(Boolean))]
+    const cocineroIds = [...new Set((pedidos || []).map((p: any) => p.cocinero_id).filter(Boolean))]
+    const todosUserIds = [...new Set([...meseroIds, ...cocineroIds])]
+
+    const { data: mesasMap } = mesaIds.length > 0
+      ? await supabase.from('mesas').select('id, nombre').in('id', mesaIds)
+      : { data: [] }
+    const { data: usuariosMap } = todosUserIds.length > 0
+      ? await supabase.from('usuarios').select('id, nombre').in('id', todosUserIds)
+      : { data: [] }
+
+    const mesasDict: Record<string, string> = {}
+    const usuariosDict: Record<string, string> = {}
+    ;(mesasMap || []).forEach((m: any) => { mesasDict[m.id] = m.nombre })
+    ;(usuariosMap || []).forEach((u: any) => { usuariosDict[u.id] = u.nombre })
 
     const pedidosConItems = await Promise.all((pedidos || []).map(async (p: any) => {
       const { data: items } = await supabase
@@ -32,14 +44,11 @@ export async function GET(req: NextRequest) {
 
       return {
         ...p,
-        mesa_nombre: p.mesas?.nombre || null,
-        mesero_nombre: p.usuarios?.nombre || null,
-        cocinero_nombre: p.cocinero?.nombre || null,
+        mesa_nombre: mesasDict[p.mesa_id] || null,
+        mesero_nombre: p.mesero_id ? (usuariosDict[p.mesero_id] || null) : null,
+        cocinero_nombre: p.cocinero_id ? (usuariosDict[p.cocinero_id] || null) : null,
         items: items || [],
         segundos_transcurridos: segundosTranscurridos,
-        mesas: undefined,
-        usuarios: undefined,
-        cocinero: undefined,
       }
     }))
 

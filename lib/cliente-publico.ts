@@ -76,8 +76,7 @@ export async function pedidoConItems(pedidoId: string) {
       .from('pedidos')
       .select(`
         *,
-        mesas!mesa_id (nombre),
-        cocinero:usuarios!cocinero_id (nombre)
+        mesas!pedidos_mesa_id_fkey (nombre)
       `)
       .eq('id', pedidoId)
       .single()
@@ -89,13 +88,22 @@ export async function pedidoConItems(pedidoId: string) {
       .select('*')
       .eq('pedido_id', pedidoId)
 
+    let cocinero_nombre = null
+    if ((pedido as any).cocinero_id) {
+      const { data: cocinero } = await supabase
+        .from('usuarios')
+        .select('nombre')
+        .eq('id', (pedido as any).cocinero_id)
+        .maybeSingle()
+      cocinero_nombre = cocinero?.nombre || null
+    }
+
     return {
       ...pedido,
-      mesa_nombre: pedido.mesas?.nombre || null,
-      cocinero_nombre: (pedido as any).cocinero?.nombre || null,
+      mesa_nombre: (pedido as any).mesas?.nombre || null,
+      cocinero_nombre,
       items: items || [],
       mesas: undefined,
-      cocinero: undefined,
     }
   } catch {
     return null
