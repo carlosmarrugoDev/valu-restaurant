@@ -25,6 +25,7 @@ const metodosPago = ["Efectivo", "Tarjeta", "Nequi", "Daviplata"];
 type EstadoPedido =
   | "pendiente_pago"
   | "en_espera_cocina"
+  | "en_cocina"
   | "en_preparacion"
   | "listo"
   | "entregado"
@@ -34,6 +35,7 @@ type EstadoPedido =
 const ESTADOS_ACTIVOS: EstadoPedido[] = [
   "pendiente_pago",
   "en_espera_cocina",
+  "en_cocina",
   "en_preparacion",
   "listo",
 ];
@@ -51,6 +53,7 @@ function getFase(estado: EstadoPedido): number {
       return 0;
     case "en_espera_cocina":
       return 1;
+    case "en_cocina":
     case "en_preparacion":
       return 2;
     case "listo":
@@ -68,6 +71,7 @@ function getEstadoLabel(estado: EstadoPedido, cocinero?: string | null) {
       return { label: "Confirmando pago", color: "text-yellow-600" };
     case "en_espera_cocina":
       return { label: "Recibido en cocina", color: "text-blue-600" };
+    case "en_cocina":
     case "en_preparacion":
       return {
         label: cocinero ? `En preparacion por ${cocinero}` : "En preparacion",
@@ -89,6 +93,7 @@ function getEstadoLabel(estado: EstadoPedido, cocinero?: string | null) {
 function ClientPageContent() {
   const searchParams = useSearchParams();
   const mesa = searchParams.get("mesa");
+  const mesaUuid = searchParams.get("mid");
   const [loading, setLoading] = useState(true);
   const [productos, setProductos] = useState<any[]>([]);
   const [categorias, setCategorias] = useState<any[]>([]);
@@ -127,39 +132,16 @@ function ClientPageContent() {
   }, []);
 
   useEffect(() => {
-    if (mesa) {
-      setMesaId(mesa);
-      setMesaNombre(mesa.replace(/-/g, " "));
-      sessionStorage.setItem("mesa_cliente", mesa);
-    } else {
-      const stored = sessionStorage.getItem("mesa_cliente");
-      if (stored) {
-        setMesaId(stored);
-        setMesaNombre(stored.replace(/-/g, " "));
-      }
+    const slug = mesa || sessionStorage.getItem("mesa_cliente");
+    const mid = mesaUuid || sessionStorage.getItem("mesa_cliente_id");
+    if (mesa) sessionStorage.setItem("mesa_cliente", mesa);
+    if (mesaUuid) sessionStorage.setItem("mesa_cliente_id", mesaUuid);
+    if (slug) {
+      setMesaId(slug);
+      setMesaNombre(slug.replace(/-/g, " "));
     }
-    loadData();
-  }, [mesa]);
-
-  useEffect(() => {
-    if (mesaId) cargarMesa();
-  }, [mesaId]);
-
-  const cargarMesa = async () => {
-    try {
-      const res = await fetch("/api/mesas");
-      const data = await res.json();
-      const mesas = data.mesas || [];
-      const encontrada = mesas.find(
-        (m: any) =>
-          m.nombre.toLowerCase() === mesaNombre.toLowerCase() ||
-          m.nombre.toLowerCase().replace(/\s+/g, "-") === mesaId,
-      );
-      setMesaEncontrada(encontrada);
-    } catch (error) {
-      console.error("Error cargando mesa:", error);
-    }
-  };
+    loadData(slug, mid);
+  }, [mesa, mesaUuid]);
 
   useEffect(() => {
     if (!mesaId || !mesaEncontrada) return;
@@ -168,18 +150,22 @@ function ClientPageContent() {
     const verificarPedido = async () => {
       if (!isMounted) return;
       try {
-        const pedidosRes = await fetch(
-          `/api/pedidos?mesa_id=${mesaEncontrada.id}&activos=true`,
-        );
+        const storedId = pedidoActivoRef.current?.id || sessionStorage.getItem("pedido_cliente_id");
+        const qs = new URLSearchParams();
+        if (storedId) qs.set("id", storedId);
+        qs.set("mesa_id", mesaEncontrada.id);
+        const pedidosRes = await fetch(`/api/cliente/pedidos?${qs.toString()}`);
         const pedidosData = await pedidosRes.json();
         const pedidos = pedidosData.pedidos || [];
+        const pedidoServidor = pedidosData.pedido || null;
 
         const activos = pedidos.filter((p: any) =>
           ESTADOS_ACTIVOS.includes(p.estado),
         );
 
         if (activos.length > 0) {
-          const pedido = activos[0];
+          const pedido =
+            (storedId && activos.find((p: any) => p.id === storedId)) || activos[0];
           const segundos = Math.floor(
             (Date.now() - new Date(pedido.fecha_creacion).getTime()) / 1000,
           );
@@ -209,12 +195,35 @@ function ClientPageContent() {
 
           pedidoActivoRef.current = pedido;
           setPedidoActivo(pedido);
+          sessionStorage.setItem("pedido_cliente_id", pedido.id);
           setTiempoTranscurrido(segundos);
           setUltimoEstado(pedido.estado);
           setPedidoCerradoAuto(false);
+          if (ESTADOS_ACTIVOS.includes(pedido.estado)) {
+            setVerEstadoPedido(true);
+          }
+        } else if (
+          pedidoServidor &&
+          ["entregado", "pagado", "cancelado"].includes(pedidoServidor.estado)
+        ) {
+          pedidoActivoRef.current = null;
+          setPedidoActivo(null);
+          sessionStorage.removeItem("pedido_cliente_id");
+          setUltimoEstado("");
+          if (verEstadoPedido) {
+            setPedidoCerradoAuto(true);
+            setTimeout(() => {
+              setVerEstadoPedido(false);
+              setPedidoCerradoAuto(false);
+              listoNotificadoRef.current = false;
+            }, 4000);
+          }
+        } else if (pedidoActivoRef.current && ESTADOS_ACTIVOS.includes(pedidoActivoRef.current.estado)) {
+          return;
         } else {
           pedidoActivoRef.current = null;
           setPedidoActivo(null);
+          sessionStorage.removeItem("pedido_cliente_id");
           setUltimoEstado("");
           if (verEstadoPedido) {
             setPedidoCerradoAuto(true);
@@ -256,20 +265,40 @@ function ClientPageContent() {
     return () => clearInterval(timer);
   }, [pedidoActivo]);
 
-  const loadData = async () => {
+  const loadData = async (slug?: string | null, mid?: string | null) => {
     setLoading(true);
     try {
-      const [prodRes, catRes] = await Promise.all([
-        fetch("/api/productos"),
-        fetch("/api/categorias"),
-      ]);
-      const prodData = await prodRes.json();
-      const catData = await catRes.json();
-      const prods = prodData.productos || [];
-      const cats = catData.categorias || [];
+      const qs = new URLSearchParams();
+      if (slug) qs.set("mesa", slug);
+      if (mid) qs.set("mid", mid);
+      const res = await fetch(`/api/cliente/menu?${qs.toString()}`);
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "No se pudo cargar el menu");
+      }
+      if (data.mesa) {
+        setMesaEncontrada(data.mesa);
+        setMesaId(data.mesa.id);
+        setMesaNombre(data.mesa.nombre);
+        sessionStorage.setItem("mesa_cliente_id", data.mesa.id);
+      }
+      const prods = data.productos || [];
+      const cats = data.categorias || [];
       setProductos(prods);
       setCategorias(cats);
       if (cats.length > 0) setCategoria(cats[0].id);
+
+      const storedPedidoId = sessionStorage.getItem("pedido_cliente_id");
+      if (storedPedidoId && data.mesa?.id) {
+        const pedidoRes = await fetch(`/api/cliente/pedidos?id=${storedPedidoId}&mesa_id=${data.mesa.id}`);
+        const pedidoData = await pedidoRes.json();
+        const pedido = pedidoData.pedido;
+        if (pedido && ESTADOS_ACTIVOS.includes(pedido.estado)) {
+          pedidoActivoRef.current = pedido;
+          setPedidoActivo(pedido);
+          setVerEstadoPedido(true);
+        }
+      }
     } catch (error) {
       console.error("Error loading data:", error);
     } finally {
@@ -338,12 +367,12 @@ function ClientPageContent() {
     setPagando(true);
     setStockLoading(true);
     try {
-      const pedidoRes = await fetch("/api/pedidos", {
+      const pedidoRes = await fetch("/api/cliente/pedidos", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           mesa_id: mesaEncontrada.id,
-          es_qr: true,
+          metodo_pago: metodoPago,
           items: cart.map((item) => ({
             producto_id: item.id,
             cantidad: item.cantidad,
@@ -356,30 +385,13 @@ function ClientPageContent() {
         throw new Error(errData.error || "No se pudo crear el pedido");
       }
       const { pedido } = await pedidoRes.json();
-
-      const pagoRes = await fetch(`/api/pedidos?id=${pedido.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          estado: "pagado",
-          metodo_pago: metodoPago,
-        }),
-      });
-      if (!pagoRes.ok) {
-        const err = await pagoRes.json();
-        await fetch(`/api/pedidos?id=${pedido.id}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            estado: "cancelado",
-            motivo: "Pago fallido o stock insuficiente",
-          }),
-        });
-        throw new Error(err.error || "No se pudo confirmar el pago");
-      }
+      pedidoActivoRef.current = pedido;
+      setPedidoActivo(pedido);
+      sessionStorage.setItem("pedido_cliente_id", pedido.id);
       setCart([]);
       setVerPago(false);
       setVerEstadoPedido(true);
+      setPedidoCerradoAuto(false);
       listoNotificadoRef.current = false;
     } catch (e: any) {
       alert("Error: " + (e.message || "Intenta de nuevo"));
@@ -406,7 +418,7 @@ function ClientPageContent() {
     if (!pedidoActivo) return;
     if (!window.confirm("Cancelar tu pedido actual?")) return;
     try {
-      const res = await fetch(`/api/pedidos?id=${pedidoActivo.id}`, {
+      const res = await fetch(`/api/cliente/pedidos?id=${pedidoActivo.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ estado: "cancelado", motivo: "Cliente solicita cancelacion" }),
@@ -417,6 +429,7 @@ function ClientPageContent() {
       }
       setPedidoActivo(null);
       pedidoActivoRef.current = null;
+      sessionStorage.removeItem("pedido_cliente_id");
       setVerEstadoPedido(false);
       listoNotificadoRef.current = false;
     } catch (e: any) {
@@ -468,12 +481,11 @@ function ClientPageContent() {
     const estado = pedidoActivo.estado as EstadoPedido;
     const estadoInfo = getEstadoLabel(estado, pedidoActivo.cocinero_nombre);
     const items = pedidoActivo.items || [];
-    const totalPedido = items.reduce(
-      (s: number, i: any) => s + i.precio_unitario * i.cantidad,
-      0,
-    );
-    const ivaPedido = totalPedido * IVA;
-    const subtotalPedido = totalPedido - ivaPedido;
+    const subtotalPedido =
+      pedidoActivo.subtotal ??
+      items.reduce((s: number, i: any) => s + i.precio_unitario * i.cantidad, 0);
+    const ivaPedido = pedidoActivo.impuestos ?? subtotalPedido * IVA;
+    const totalPedido = pedidoActivo.total ?? subtotalPedido + ivaPedido;
     const fase = Math.max(1, getFase(estado));
     const porcentaje = fase === 0 ? 0 : (fase / 4) * 100;
 
@@ -640,7 +652,7 @@ function ClientPageContent() {
                     </div>
                   </div>
                 )}
-                {estado === "en_preparacion" && (
+                {(estado === "en_preparacion" || estado === "en_cocina") && (
                   <div className="bg-amber-500/10 border border-amber-500/20 text-amber-800 p-3 rounded-xl flex items-start gap-2">
                     <ChefHat className="size-5 shrink-0 mt-0.5 animate-pulse" />
                     <div>
@@ -712,7 +724,7 @@ function ClientPageContent() {
                   <ArrowLeft className="size-4" />
                   Volver al menu
                 </button>
-                {["en_espera_cocina", "en_preparacion", "pendiente_pago"].includes(
+                {["en_espera_cocina", "en_cocina", "en_preparacion", "pendiente_pago"].includes(
                   estado,
                 ) && (
                   <button

@@ -204,7 +204,7 @@ export async function POST(req: NextRequest) {
       .insert(itemsConPedido)
       .select()
 
-    if (estadoInicial === 'en_preparacion') {
+    if (estadoInicial === 'en_espera_cocina') {
       const resultadoDescuento = await descontarInsumosPorPedido(
         user.tenantId!,
         user.userId,

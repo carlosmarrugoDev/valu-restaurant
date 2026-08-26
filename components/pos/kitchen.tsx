@@ -331,6 +331,11 @@ export function Kitchen() {
                   <div>
                     <p className="font-display text-lg font-bold leading-none">
                       {pedido.mesa_nombre || `Mesa #${pedido.mesa_id}`}
+                      {pedido.es_qr && (
+                        <span className="ml-2 align-middle text-[10px] font-semibold uppercase tracking-wide text-primary">
+                          QR cliente
+                        </span>
+                      )}
                     </p>
                     <p className="mt-1 text-xs text-muted-foreground">
                       Pedido #{pedido.numero_pedido || pedido.id.slice(0, 6)}

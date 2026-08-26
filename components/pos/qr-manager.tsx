@@ -13,6 +13,11 @@ import { toast } from 'sonner'
 
 const QR_API_URL = 'https://api.qrserver.com/v1/create-qr-code/'
 
+function urlCliente(baseUrl: string, mesa: { id: string; nombre: string }) {
+  const slug = mesa.nombre.toLowerCase().replace(/\s+/g, '-')
+  return `${baseUrl}/cliente?mesa=${encodeURIComponent(slug)}&mid=${mesa.id}`
+}
+
 export function QRManager() {
   const { user } = useAuth()
   const [loading, setLoading] = useState(false)
@@ -25,8 +30,9 @@ export function QRManager() {
 
   useEffect(() => {
     loadMesas()
-    // Usar el dominio real configurado
-    setBaseUrl('https://valu-restaurant.vercel.app')
+    if (typeof window !== 'undefined') {
+      setBaseUrl(window.location.origin)
+    }
   }, [user])
 
   const loadMesas = async () => {
@@ -58,7 +64,7 @@ export function QRManager() {
       return
     }
 
-    const clientUrl = `${baseUrl}/cliente?mesa=${mesa.nombre.toLowerCase().replace(/\s+/g, '-')}`
+    const clientUrl = urlCliente(baseUrl, mesa)
     const qrGenerated = `${QR_API_URL}?size=300x300&data=${encodeURIComponent(clientUrl)}&format=png&bgcolor=ffffff&color=1a1512`
     
     setQrUrl(qrGenerated)
@@ -71,7 +77,7 @@ export function QRManager() {
     const mesa = mesas.find(m => m.id === mesaSeleccionada)
     if (!mesa) return
     
-    const clientUrl = `${baseUrl}/cliente?mesa=${mesa.nombre.toLowerCase().replace(/\s+/g, '-')}`
+    const clientUrl = urlCliente(baseUrl, mesa)
     navigator.clipboard.writeText(clientUrl)
     setCopiado(true)
     setTimeout(() => setCopiado(false), 3000)
@@ -98,7 +104,7 @@ export function QRManager() {
     }
     
     const mesa = mesas.find(m => m.id === mesaSeleccionada)
-    const clientUrl = `${baseUrl}/cliente?mesa=${mesa?.nombre.toLowerCase().replace(/\s+/g, '-') || ''}`
+    const clientUrl = mesa ? urlCliente(baseUrl, mesa) : `${baseUrl}/cliente`
     
     printWindow.document.write(`
       <html>
@@ -203,7 +209,7 @@ export function QRManager() {
               <div className="rounded-lg bg-muted/30 p-3 text-xs">
                 <p className="font-medium text-muted-foreground">URL del menú:</p>
                 <code className="block mt-1 break-all text-primary">
-                  {baseUrl}/cliente?mesa={mesaActual.nombre.toLowerCase().replace(/\s+/g, '-')}
+                  {mesaActual ? urlCliente(baseUrl, mesaActual) : `${baseUrl}/cliente?mesa=...`}
                 </code>
                 <p className="mt-2 text-muted-foreground">
                   Los clientes escanearán este QR y verán el menú para pedir
