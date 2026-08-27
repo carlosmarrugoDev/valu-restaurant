@@ -21,16 +21,38 @@ import { RefreshCw } from 'lucide-react'
 type EmpleadoTurno = {
   id: string
   nombre: string
-  role: 'cocina' | 'mesero' | 'gerente' | 'cajero'
+  role: 'cocina' | 'mesero' | 'gerente' | 'cajero' | 'dueno' | 'admin'
   enTurno: boolean
   pedidosTomados?: number
   pedidosListos?: number
+  pedidosEntregados?: number
 }
 
 function calcularTurnoActual(): { nombre: string; color: string } {
   const h = new Date().getHours()
   if (h >= 7 && h < 16) return { nombre: 'Comida', color: 'bg-amber-500' }
   return { nombre: 'Cena', color: 'bg-indigo-500' }
+}
+
+function hoyKey() {
+  return new Date().toISOString().split('T')[0]
+}
+
+function loadTurnosLocales(tenantId?: string): Record<string, boolean> {
+  try {
+    const key = `turnos_${tenantId || 'default'}_${hoyKey()}`
+    const raw = localStorage.getItem(key)
+    return raw ? JSON.parse(raw) : {}
+  } catch {
+    return {}
+  }
+}
+
+function saveTurnosLocales(tenantId: string | undefined, map: Record<string, boolean>) {
+  try {
+    const key = `turnos_${tenantId || 'default'}_${hoyKey()}`
+    localStorage.setItem(key, JSON.stringify(map))
+  } catch { /* no-op */ }
 }
 
 export function Turns() {
@@ -43,63 +65,93 @@ export function Turns() {
   const cargarDatos = async () => {
     setCargando(true)
     try {
-      const resEmp = await fetch('/api/usuarios', {
+      const turnosMap = loadTurnosLocales(user?.tenantId)
+
+      const resEmp = await fetch('/api/empleados', {
         headers: { 'Content-Type': 'application/json' },
       })
+      let listaEmpleados: any[] = []
       if (resEmp.ok) {
         const data = await resEmp.json()
-        const lista = (data.usuarios || data || []).filter((u: any) =>
-          ['cocina', 'mesero', 'gerente', 'cajero'].includes(u.role || u.rol)
-        )
-        setEmpleados(
-          lista.map((e: any) => ({
-            id: e.id,
-            nombre: e.nombre || e.name || 'Empleado',
-            role: (e.role || e.rol || 'mesero') as any,
-            enTurno: e.en_turno ?? true,
-            pedidosTomados: 0,
-            pedidosListos: 0,
-          }))
-        )
+        listaEmpleados = (data.empleados || data || []).filter((u: any) => u.activo !== false)
+        if (user && listaEmpleados.findIndex((e: any) => e.id === user.id) === -1) {
+          listaEmpleados.unshift({
+            id: user.id,
+            nombre: user.nombre || user.email || 'Yo',
+            rol: user.rol || 'dueno',
+          })
+        }
       } else {
-        setEmpleados([
-          { id: '1', nombre: 'Lucía Ramírez', role: 'mesero', enTurno: true },
-          { id: '2', nombre: 'Diego Morales', role: 'mesero', enTurno: true },
-          { id: '3', nombre: 'Karla Torres', role: 'mesero', enTurno: true },
-          { id: '4', nombre: 'Mario Sánchez', role: 'cocina', enTurno: true, pedidosTomados: 5, pedidosListos: 4 },
-          { id: '5', nombre: 'Andrea Cruz', role: 'cocina', enTurno: true, pedidosTomados: 6, pedidosListos: 5 },
-          { id: '6', nombre: 'Jorge Pérez', role: 'cocina', enTurno: false },
-          { id: '7', nombre: 'Rosa López', role: 'cajero', enTurno: true },
-        ])
+        const resEmp2 = await fetch('/api/empleados', {
+          headers: { 'Content-Type': 'application/json' },
+        })
+        if (resEmp2.ok) {
+          const data = await resEmp2.json()
+          listaEmpleados = (data.empleados || data || []).filter((u: any) => u.activo !== false)
+        }
       }
 
       const resPed = await fetch('/api/pedidos?estado=historial_hoy', {
         headers: { 'Content-Type': 'application/json' },
       })
+      const pedidos: any[] = []
+      const statsMap = new Map<string, { tomados: number; listos: number; entrega: number; total: number }>()
       if (resPed.ok) {
         const data = await resPed.json()
-        const pedidos = data.pedidos || []
-        const mapa = new Map<string, { nombre: string; tomados: number; listos: number; entrega: number; total: number }>()
+        const ps = data.pedidos || []
+        ps.forEach((p: any) => pedidos.push(p))
+
         for (const p of pedidos) {
           const cid = p.cocinero_id
-          const cnombre = p.cocinero_nombre || 'Sin asignar'
-          if (!mapa.has(cid || 'sin_asignar')) {
-            mapa.set(cid || 'sin_asignar', { nombre: cnombre, tomados: 0, listos: 0, entrega: 0, total: 0 })
+          const cnombre = p.cocinero_nombre || (cid ? null : 'Sin asignar')
+          if (cid || cnombre === 'Sin asignar') {
+            const key = cid || 'sin_asignar'
+            if (!statsMap.has(key)) {
+              statsMap.set(key, { tomados: 0, listos: 0, entrega: 0, total: 0 })
+            }
+            const r = statsMap.get(key)!
+            const estadosTomado = ['en_cocina', 'en_preparacion', 'listo', 'entregado', 'pagado']
+            if (estadosTomado.includes(p.estado)) r.tomados++
+            if (['listo', 'entregado', 'pagado'].includes(p.estado)) r.listos++
+            if (['entregado', 'pagado'].includes(p.estado)) r.entrega++
+            r.total += p.total || 0
           }
-          const r = mapa.get(cid || 'sin_asignar')!
-          if (p.estado === 'en_cocina' || p.estado === 'en_preparacion' || p.estado === 'listo' || p.estado === 'entregado' || p.estado === 'pagado') r.tomados++
-          if (p.estado === 'listo' || p.estado === 'entregado' || p.estado === 'pagado') r.listos++
-          if (p.estado === 'entregado' || p.estado === 'pagado') r.entrega++
-          r.total += p.total || 0
         }
-        setResumenCocina(Array.from(mapa.values()))
-      } else {
-        setResumenCocina([
-          { nombre: 'Mario Sánchez', tomados: 5, listos: 4, entrega: 3, total: 2250 },
-          { nombre: 'Andrea Cruz', tomados: 6, listos: 5, entrega: 4, total: 2980 },
-          { nombre: 'Sin asignar', tomados: 1, listos: 0, entrega: 0, total: 185 },
-        ])
       }
+
+      setEmpleados(
+        listaEmpleados.map((e: any) => {
+          const rol = (e.rol || e.role || 'mesero') as any
+          const stats = e.id ? statsMap.get(e.id) : undefined
+          return {
+            id: e.id,
+            nombre: e.nombre || e.name || 'Empleado',
+            role: rol,
+            enTurno: Object.prototype.hasOwnProperty.call(turnosMap, e.id)
+              ? !!turnosMap[e.id]
+              : (e.en_turno ?? true),
+            pedidosTomados: stats?.tomados || 0,
+            pedidosListos: stats?.listos || 0,
+            pedidosEntregados: stats?.entrega || 0,
+          }
+        })
+      )
+
+      const resumen: any[] = []
+      const nombrePorId: Record<string, string> = {}
+      listaEmpleados.forEach((e: any) => { nombrePorId[e.id] = e.nombre || 'Empleado' })
+      statsMap.forEach((value, key) => {
+        resumen.push({
+          id: key,
+          nombre: key === 'sin_asignar' ? 'Sin asignar' : (nombrePorId[key] || 'Sin asignar'),
+          tomados: value.tomados,
+          listos: value.listos,
+          entrega: value.entrega,
+          total: value.total,
+        })
+      })
+      resumen.sort((a, b) => a.nombre === 'Sin asignar' ? 1 : b.nombre === 'Sin asignar' ? -1 : a.tomados - b.tomados)
+      setResumenCocina(resumen)
     } finally {
       setCargando(false)
     }
@@ -107,10 +159,16 @@ export function Turns() {
 
   useEffect(() => {
     cargarDatos()
-  }, [])
+  }, [user])
 
   const toggleTurno = (id: string) => {
-    setEmpleados(prev => prev.map(e => e.id === id ? { ...e, enTurno: !e.enTurno } : e))
+    setEmpleados(prev => {
+      const next = prev.map(e => e.id === id ? { ...e, enTurno: !e.enTurno } : e)
+      const map: Record<string, boolean> = {}
+      next.forEach(e => { map[e.id] = e.enTurno })
+      saveTurnosLocales(user?.tenantId, map)
+      return next
+    })
   }
 
   const enTurnoCount = empleados.filter(e => e.enTurno).length
@@ -176,6 +234,11 @@ export function Turns() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
+            {empleados.length === 0 && (
+              <p className="text-sm text-muted-foreground py-8 text-center border border-dashed rounded-lg">
+                No se pudo cargar el personal. Verifica la conexión.
+              </p>
+            )}
             {empleados.map((e) => (
               <div key={e.id} className="flex items-center justify-between p-3 rounded-lg border border-border bg-card">
                 <div className="flex items-center gap-3">
@@ -192,9 +255,9 @@ export function Turns() {
                       <Badge variant="outline" className="text-[10px]">
                         {rolLabel(e.role)}
                       </Badge>
-                      {e.role === 'cocina' && e.pedidosTomados !== undefined && (
+                      {e.role === 'cocina' && (
                         <span className="text-[10px] text-muted-foreground">
-                          {e.pedidosTomados} tomados · {e.pedidosListos} listos
+                          {e.pedidosTomados} tomados · {e.pedidosListos} listos · {e.pedidosEntregados} entregados
                         </span>
                       )}
                     </div>
@@ -228,7 +291,7 @@ export function Turns() {
               </TableHeader>
               <TableBody>
                 {resumenCocina.map((r, i) => (
-                  <TableRow key={i}>
+                  <TableRow key={r.id || i}>
                     <TableCell className="font-medium">{r.nombre}</TableCell>
                     <TableCell className="text-right">{r.tomados}</TableCell>
                     <TableCell className="text-right">{r.listos}</TableCell>

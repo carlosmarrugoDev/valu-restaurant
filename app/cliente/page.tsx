@@ -41,10 +41,10 @@ const ESTADOS_ACTIVOS: EstadoPedido[] = [
 ];
 
 const BARRA = [
-  { key: "pagado", label: "PAGADO", estado: ["en_espera_cocina", "en_preparacion", "listo", "entregado"] as EstadoPedido[] },
-  { key: "cocina", label: "COCINA", estado: ["en_preparacion", "listo", "entregado"] as EstadoPedido[] },
-  { key: "listo", label: "LISTO", estado: ["listo", "entregado"] as EstadoPedido[] },
-  { key: "entregado", label: "ENTREGADO", estado: ["entregado"] as EstadoPedido[] },
+  { key: "pagado", label: "PAGADO", fase: 1 as const },
+  { key: "cocina", label: "COCINA", fase: 2 as const },
+  { key: "listo", label: "LISTO", fase: 3 as const },
+  { key: "entregado", label: "ENTREGADO", fase: 4 as const },
 ];
 
 function getFase(estado: EstadoPedido): number {
@@ -70,11 +70,11 @@ function getEstadoLabel(estado: EstadoPedido, cocinero?: string | null) {
     case "pendiente_pago":
       return { label: "Confirmando pago", color: "text-yellow-600" };
     case "en_espera_cocina":
-      return { label: "Recibido en cocina", color: "text-blue-600" };
+      return { label: "En cola de cocina", color: "text-blue-600" };
     case "en_cocina":
     case "en_preparacion":
       return {
-        label: cocinero ? `En preparacion por ${cocinero}` : "En preparacion",
+        label: cocinero ? `Preparandolo ${cocinero}` : "En preparacion",
         color: "text-amber-700",
       };
     case "listo":
@@ -109,6 +109,8 @@ function ClientPageContent() {
   const [metodoPago, setMetodoPago] = useState("efectivo");
   const [pagando, setPagando] = useState(false);
   const [stockLoading, setStockLoading] = useState(false);
+  const [sesionClienteId, setSesionClienteId] = useState<string>("");
+  const [avisoSesionOtroPedido, setAvisoSesionOtroPedido] = useState(false);
 
   const [pedidoActivo, setPedidoActivo] = useState<any | null>(null);
   const [tiempoTranscurrido, setTiempoTranscurrido] = useState<number>(0);
@@ -119,6 +121,17 @@ function ClientPageContent() {
   const pedidoActivoRef = useRef<any>(null);
   const vibradoRef = useRef<boolean>(false);
   const listoNotificadoRef = useRef<boolean>(false);
+
+  useEffect(() => {
+    let sid = sessionStorage.getItem("sesion_cliente_id");
+    if (!sid) {
+      const array = new Uint8Array(16);
+      crypto.getRandomValues(array);
+      sid = "cli_" + Array.from(array).map((b) => b.toString(16).padStart(2, "0")).join("");
+      sessionStorage.setItem("sesion_cliente_id", sid);
+    }
+    setSesionClienteId(sid);
+  }, []);
 
   useEffect(() => {
     const handleOnline = () => setIsOffline(false);
@@ -154,6 +167,7 @@ function ClientPageContent() {
         const qs = new URLSearchParams();
         if (storedId) qs.set("id", storedId);
         qs.set("mesa_id", mesaEncontrada.id);
+        if (sesionClienteId) qs.set("cliente_sesion", sesionClienteId);
         const pedidosRes = await fetch(`/api/cliente/pedidos?${qs.toString()}`);
         const pedidosData = await pedidosRes.json();
         const pedidos = pedidosData.pedidos || [];
@@ -163,19 +177,19 @@ function ClientPageContent() {
           ESTADOS_ACTIVOS.includes(p.estado),
         );
 
-        if (activos.length > 0) {
-          const pedido =
-            (storedId && activos.find((p: any) => p.id === storedId)) || activos[0];
+        const storedPedido = storedId ? activos.find((p: any) => p.id === storedId) : null;
+
+        if (storedPedido) {
           const segundos = Math.floor(
-            (Date.now() - new Date(pedido.fecha_creacion).getTime()) / 1000,
+            (Date.now() - new Date(storedPedido.fecha_creacion).getTime()) / 1000,
           );
 
           const cambioEstado =
-            pedidoActivoRef.current?.estado !== pedido.estado;
+            pedidoActivoRef.current?.estado !== storedPedido.estado;
 
           if (
             cambioEstado &&
-            pedido.estado === "listo" &&
+            storedPedido.estado === "listo" &&
             !listoNotificadoRef.current
           ) {
             listoNotificadoRef.current = true;
@@ -193,23 +207,23 @@ function ClientPageContent() {
             }
           }
 
-          pedidoActivoRef.current = pedido;
-          setPedidoActivo(pedido);
-          sessionStorage.setItem("pedido_cliente_id", pedido.id);
+          pedidoActivoRef.current = storedPedido;
+          setPedidoActivo(storedPedido);
+          sessionStorage.setItem("pedido_cliente_id", storedPedido.id);
           setTiempoTranscurrido(segundos);
-          setUltimoEstado(pedido.estado);
+          setUltimoEstado(storedPedido.estado);
           setPedidoCerradoAuto(false);
-          if (ESTADOS_ACTIVOS.includes(pedido.estado)) {
-            setVerEstadoPedido(true);
-          }
-        } else if (
+          setAvisoSesionOtroPedido(false);
+          setVerEstadoPedido(true);
+        } else if (storedId && !storedPedido && (
           pedidoServidor &&
           ["entregado", "pagado", "cancelado"].includes(pedidoServidor.estado)
-        ) {
+        )) {
           pedidoActivoRef.current = null;
           setPedidoActivo(null);
           sessionStorage.removeItem("pedido_cliente_id");
           setUltimoEstado("");
+          setAvisoSesionOtroPedido(false);
           if (verEstadoPedido) {
             setPedidoCerradoAuto(true);
             setTimeout(() => {
@@ -218,13 +232,32 @@ function ClientPageContent() {
               listoNotificadoRef.current = false;
             }, 4000);
           }
-        } else if (pedidoActivoRef.current && ESTADOS_ACTIVOS.includes(pedidoActivoRef.current.estado)) {
+        } else if (storedId && !storedPedido && pedidoActivoRef.current && ESTADOS_ACTIVOS.includes(pedidoActivoRef.current.estado)) {
           return;
+        } else if (storedId && !storedPedido) {
+          pedidoActivoRef.current = null;
+          setPedidoActivo(null);
+          sessionStorage.removeItem("pedido_cliente_id");
+          setUltimoEstado("");
+          setAvisoSesionOtroPedido(false);
+          if (verEstadoPedido) {
+            setPedidoCerradoAuto(true);
+            setTimeout(() => {
+              setVerEstadoPedido(false);
+              setPedidoCerradoAuto(false);
+              listoNotificadoRef.current = false;
+            }, 4000);
+          }
+        } else if (!storedId && activos.length > 0) {
+          setAvisoSesionOtroPedido(true);
+          pedidoActivoRef.current = null;
+          setPedidoActivo(null);
         } else {
           pedidoActivoRef.current = null;
           setPedidoActivo(null);
           sessionStorage.removeItem("pedido_cliente_id");
           setUltimoEstado("");
+          setAvisoSesionOtroPedido(false);
           if (verEstadoPedido) {
             setPedidoCerradoAuto(true);
             setTimeout(() => {
@@ -248,7 +281,7 @@ function ClientPageContent() {
       isMounted = false;
       clearInterval(interval);
     };
-  }, [mesaId, mesaEncontrada, verEstadoPedido, mesaNombre]);
+  }, [mesaId, mesaEncontrada, verEstadoPedido, mesaNombre, sesionClienteId]);
 
   useEffect(() => {
     if (!pedidoActivo) return;
@@ -290,13 +323,19 @@ function ClientPageContent() {
 
       const storedPedidoId = sessionStorage.getItem("pedido_cliente_id");
       if (storedPedidoId && data.mesa?.id) {
-        const pedidoRes = await fetch(`/api/cliente/pedidos?id=${storedPedidoId}&mesa_id=${data.mesa.id}`);
+        const pedidoRes = await fetch(`/api/cliente/pedidos?id=${storedPedidoId}&mesa_id=${data.mesa.id}&cliente_sesion=${sesionClienteId || ''}`);
         const pedidoData = await pedidoRes.json();
         const pedido = pedidoData.pedido;
         if (pedido && ESTADOS_ACTIVOS.includes(pedido.estado)) {
           pedidoActivoRef.current = pedido;
           setPedidoActivo(pedido);
+          setAvisoSesionOtroPedido(false);
           setVerEstadoPedido(true);
+        } else {
+          sessionStorage.removeItem("pedido_cliente_id");
+          if (pedidoData.pedidos && pedidoData.pedidos.some((p: any) => ESTADOS_ACTIVOS.includes(p.estado))) {
+            setAvisoSesionOtroPedido(true);
+          }
         }
       }
     } catch (error) {
@@ -606,19 +645,25 @@ function ClientPageContent() {
               </div>
 
               <div className="mt-2">
-                <div className="flex items-center justify-between text-[10px] text-muted-foreground mb-2 px-1 tracking-wide">
-                  {BARRA.map((b) => (
-                    <span
-                      key={b.key}
-                      className={
-                        b.estado.includes(estado)
-                          ? "text-primary font-bold"
-                          : ""
-                      }
-                    >
-                      {b.label}
-                    </span>
-                  ))}
+                <div className="flex items-center justify-between text-[10px] mb-2 px-1 tracking-wide">
+                  {BARRA.map((b) => {
+                    const completado = fase > b.fase
+                    const actual = fase === b.fase
+                    return (
+                      <span
+                        key={b.key}
+                        className={
+                          actual
+                            ? "text-primary font-bold scale-110 transition-transform"
+                            : completado
+                              ? "text-green-600 font-medium"
+                              : "text-muted-foreground"
+                        }
+                      >
+                        {b.label}
+                      </span>
+                    )
+                  })}
                 </div>
                 <div className="relative h-2 bg-muted rounded-full overflow-hidden">
                   <div
@@ -626,16 +671,22 @@ function ClientPageContent() {
                     style={{ width: `${porcentaje}%` }}
                   />
                   <div className="absolute inset-0 flex justify-between px-1">
-                    {BARRA.map((b) => (
-                      <div
-                        key={b.key}
-                        className={`size-3 rounded-full -mt-0.5 ${
-                          b.estado.includes(estado)
-                            ? "bg-primary shadow"
-                            : "bg-muted"
-                        }`}
-                      />
-                    ))}
+                    {BARRA.map((b) => {
+                      const completado = fase > b.fase
+                      const actual = fase === b.fase
+                      return (
+                        <div
+                          key={b.key}
+                          className={`size-3 rounded-full -mt-0.5 ${
+                            completado
+                              ? "bg-green-600 shadow"
+                              : actual
+                                ? "bg-primary shadow ring-2 ring-primary/20"
+                                : "bg-muted"
+                          }`}
+                        />
+                      )
+                    })}
                   </div>
                 </div>
               </div>
@@ -646,7 +697,7 @@ function ClientPageContent() {
                     <UserCheck className="size-5 shrink-0 mt-0.5" />
                     <div>
                       <p className="font-semibold">
-                        Pedido recibido en cocina
+                        Tu pedido esta en cola de cocina
                       </p>
                       <p className="text-xs opacity-80">
                         Esperando a que un cocinero tome tu pedido para
@@ -845,6 +896,29 @@ function ClientPageContent() {
           <div className="p-3 bg-destructive text-white rounded-lg flex items-center gap-2 animate-pulse text-sm font-bold">
             <XCircle className="size-4" />
             Sin conexion. Tu pedido no se enviara hasta restaurarse la red.
+          </div>
+        )}
+
+        {avisoSesionOtroPedido && (
+          <div className="p-4 border border-amber-300/60 bg-amber-500/10 rounded-xl flex items-start gap-3 text-sm">
+            <AlertTriangle className="size-5 shrink-0 text-amber-600 mt-0.5" />
+            <div className="flex-1">
+              <p className="font-semibold text-amber-800">
+                Esta mesa tiene un pedido activo creado desde otro dispositivo
+              </p>
+              <p className="text-xs text-amber-700 mt-0.5 opacity-90">
+                Por seguridad, no puedes ver ni modificar ese pedido desde este telefono.
+                Si es tu pedido, vuelve al celular donde lo creaste. Si deseas ordenar
+                algo adicional, puedes hacerlo normalmente y se creara un pedido
+                independiente para esta sesion.
+              </p>
+            </div>
+            <button
+              onClick={() => setAvisoSesionOtroPedido(false)}
+              className="text-amber-700 hover:text-amber-900 text-xs font-medium px-2 py-1 rounded-md hover:bg-amber-500/10 transition-colors"
+            >
+              Cerrar
+            </button>
           </div>
         )}
 

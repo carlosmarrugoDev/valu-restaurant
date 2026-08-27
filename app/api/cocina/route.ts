@@ -129,9 +129,14 @@ export async function PATCH(req: NextRequest) {
         }
       }
 
+      const cocineroActual = pedidoAsociado?.cocinero_id || user.userId
+      const updatesItem: any = { estado: 'listo' }
+      if (!pedidoAsociado?.cocinero_id) {
+        updatesItem.cocinero_id = user.userId
+      }
       const { error: itemError } = await supabase
         .from('pedido_items')
-        .update({ estado: 'listo' })
+        .update(updatesItem)
         .eq('id', item_id)
 
       if (itemError) throw itemError
@@ -153,7 +158,9 @@ export async function PATCH(req: NextRequest) {
             .from('pedidos')
             .update({
               estado: 'listo',
+              cocinero_id: cocineroActual,
               fecha_listo: ahora,
+              fecha_tomado: pedidoAsociado?.fecha_tomado || ahora,
               fecha_actualizacion: ahora,
             } as any)
             .eq('id', id)
@@ -163,11 +170,28 @@ export async function PATCH(req: NextRequest) {
             .from('pedidos')
             .update({
               estado: 'listo',
+              cocinero_id: cocineroActual,
               fecha_actualizacion: ahora,
             } as any)
             .eq('id', id)
             .eq('tenant_id', tenantId)
         }
+      } else if (pedidoIdRef && !pedidoAsociado?.cocinero_id) {
+        const id = pedidoIdRef
+        const tenantId = user.tenantId
+        const ahora = new Date().toISOString()
+        try {
+          await supabase
+            .from('pedidos')
+            .update({
+              cocinero_id: user.userId,
+              estado: pedidoAsociado?.estado === 'en_espera_cocina' || pedidoAsociado?.estado === 'en_cocina' ? 'en_preparacion' : pedidoAsociado?.estado,
+              fecha_tomado: ahora,
+              fecha_actualizacion: ahora,
+            } as any)
+            .eq('id', id)
+            .eq('tenant_id', tenantId)
+        } catch { /* no-op */ }
       }
 
       return NextResponse.json({ success: true, message: 'Item marcado como listo' })
@@ -176,17 +200,20 @@ export async function PATCH(req: NextRequest) {
     if (pedido_id && pedidoAsociado) {
       await supabase
         .from('pedido_items')
-        .update({ estado: 'listo' })
+        .update({ estado: 'listo', cocinero_id: pedidoAsociado.cocinero_id || user.userId })
         .eq('pedido_id', pedido_id)
         .in('estado', ['pendiente_pago', 'pendiente', 'en_cocina', 'en_preparacion'])
 
       const ahora = new Date().toISOString()
+      const cocineroFinal = pedidoAsociado.cocinero_id || user.userId
       try {
         await supabase
           .from('pedidos')
           .update({
             estado: 'listo',
+            cocinero_id: cocineroFinal,
             fecha_listo: ahora,
+            fecha_tomado: pedidoAsociado.fecha_tomado || ahora,
             fecha_actualizacion: ahora,
           } as any)
           .eq('id', pedido_id)
@@ -196,6 +223,7 @@ export async function PATCH(req: NextRequest) {
           .from('pedidos')
           .update({
             estado: 'listo',
+            cocinero_id: cocineroFinal,
             fecha_actualizacion: ahora,
           } as any)
           .eq('id', pedido_id)

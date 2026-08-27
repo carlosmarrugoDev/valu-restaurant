@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Plus, Clock, User, Receipt, Armchair, Loader2, Edit2, Trash2 } from 'lucide-react'
+import { Plus, Clock, User, Receipt, Armchair, Loader2, Edit2, Trash2, CheckCircle, Send } from 'lucide-react'
 
 import { currencyDetailed } from '@/lib/data'
 import { cn } from '@/lib/utils'
@@ -44,6 +44,8 @@ export function TablesMap() {
   const [mesas, setMesas] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [selected, setSelected] = useState<any | null>(null)
+  const [pedidosMesa, setPedidosMesa] = useState<any[]>([])
+  const [cargandoPedidos, setCargandoPedidos] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const [openNewMesa, setOpenNewMesa] = useState(false)
@@ -59,6 +61,48 @@ export function TablesMap() {
   useEffect(() => {
     loadMesas()
   }, [user])
+
+  useEffect(() => {
+    if (selected?.id) {
+      cargarPedidosMesa(selected.id)
+    } else {
+      setPedidosMesa([])
+    }
+  }, [selected])
+
+  const cargarPedidosMesa = async (mesaId: string) => {
+    setCargandoPedidos(true)
+    try {
+      const res = await fetch(`/api/pedidos?mesa_id=${mesaId}`, {
+        headers: { 'Content-Type': 'application/json' },
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setPedidosMesa(data.pedidos || [])
+      }
+    } catch { /* no-op */ } finally {
+      setCargandoPedidos(false)
+    }
+  }
+
+  const marcarPedidoEntregado = async (pedidoId: string) => {
+    try {
+      const res = await fetch(`/api/pedidos?id=${pedidoId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ estado: 'entregado' }),
+      })
+      if (res.ok) {
+        toast.success('Pedido marcado como entregado')
+        await Promise.all([loadMesas(), cargarPedidosMesa(selected.id)])
+      } else {
+        const d = await res.json()
+        toast.error(d.error || 'No se pudo marcar')
+      }
+    } catch {
+      toast.error('Error de conexion')
+    }
+  }
 
   const loadMesas = async () => {
     setLoading(true)
@@ -364,81 +408,192 @@ export function TablesMap() {
 
       {/* Modal Detalle Mesa */}
       <Dialog open={selected !== null} onOpenChange={(open) => !open && setSelected(null)}>
-        <DialogContent>
-          {selected && (
-            <>
-              <DialogHeader>
-                <div className="flex items-center justify-between gap-2">
-                  <DialogTitle className="font-display text-lg">{selected.nombre}</DialogTitle>
-                  <Badge variant="outline" className={cn('gap-1.5', estadoStyles[selected.estado])}>
-                    <span className={cn('size-2 rounded-full', dotStyles[selected.estado])} />
-                    {estadoLabel[selected.estado]}
-                  </Badge>
-                </div>
-                <DialogDescription>
-                  Capacidad para {selected.asientos} {selected.asientos === 1 ? 'persona' : 'personas'}
-                </DialogDescription>
-              </DialogHeader>
+        <DialogContent className="max-w-2xl">
+          {selected && (() => {
+            const pedidosActivos = pedidosMesa.filter((p: any) =>
+              !['pagado', 'cancelado'].includes(p.estado)
+            )
+            const pedidosQrPagados = pedidosActivos.filter((p: any) =>
+              p.es_qr && p.metodo_pago && p.estado !== 'cancelado'
+            )
+            const todosQrYaPagados = pedidosActivos.length > 0 &&
+              pedidosActivos.every((p: any) =>
+                p.es_qr && p.metodo_pago && ['en_espera_cocina', 'en_preparacion', 'en_cocina', 'listo', 'entregado'].includes(p.estado)
+              )
+            const pedidoMasReciente = pedidosActivos[0] || pedidosMesa[0]
+            const estadoPedidoTexto: Record<string, string> = {
+              pendiente_pago: 'Pendiente de pago',
+              en_espera_cocina: 'En cola de cocina',
+              en_cocina: 'En cocina',
+              en_preparacion: 'En preparacion',
+              listo: 'Listo para entregar',
+              entregado: 'Entregado',
+              pagado: 'Pagado y cerrado',
+              cancelado: 'Cancelado',
+            }
 
-              <div className="flex flex-col gap-2.5 text-sm">
-                <div className="flex items-center justify-between rounded-lg bg-muted/50 px-3 py-2.5">
-                  <span className="flex items-center gap-2 text-muted-foreground">
-                    <User className="size-4" /> Mesero asignado
-                  </span>
-                  <span className="font-medium">{selected.mesero_nombre || 'Sin asignar'}</span>
-                </div>
-                <div className="flex items-center justify-between rounded-lg bg-muted/50 px-3 py-2.5">
-                  <span className="flex items-center gap-2 text-muted-foreground">
-                    <Clock className="size-4" /> Estado
-                  </span>
-                  <span className="font-medium">{estadoLabel[selected.estado]}</span>
-                </div>
-                <div className="flex items-center justify-between rounded-lg bg-muted/50 px-3 py-2.5">
-                  <span className="flex items-center gap-2 text-muted-foreground">
-                    <Armchair className="size-4" /> Zona
-                  </span>
-                  <span className="font-medium">{selected.zona || 'Sin zona'}</span>
-                </div>
-              </div>
+            return (
+              <>
+                <DialogHeader>
+                  <div className="flex items-center justify-between gap-2">
+                    <DialogTitle className="font-display text-lg">{selected.nombre}</DialogTitle>
+                    <Badge variant="outline" className={cn('gap-1.5', estadoStyles[selected.estado])}>
+                      <span className={cn('size-2 rounded-full', dotStyles[selected.estado])} />
+                      {estadoLabel[selected.estado]}
+                    </Badge>
+                  </div>
+                  <DialogDescription>
+                    Capacidad para {selected.asientos} {selected.asientos === 1 ? 'persona' : 'personas'}
+                  </DialogDescription>
+                </DialogHeader>
 
-              <DialogFooter className="flex flex-wrap gap-2 justify-between">
-                <div className="flex gap-2">
-                  <Button variant="outline" size="sm" onClick={() => {
-                    setEditingMesa(selected)
-                    setOpenEditMesa(true)
-                    setSelected(null)
-                  }}>
-                    <Edit2 className="size-4 mr-2" />
-                    Editar
-                  </Button>
-                  <Button variant="destructive" size="sm" onClick={() => {
-                    handleDeleteMesa(selected.id, selected.nombre)
-                  }}>
-                    <Trash2 className="size-4 mr-2" />
-                    Eliminar
-                  </Button>
+                <div className="flex flex-col gap-3 text-sm">
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <div className="flex items-center justify-between rounded-lg bg-muted/50 px-3 py-2.5">
+                      <span className="flex items-center gap-2 text-muted-foreground">
+                        <User className="size-4" /> Mesero
+                      </span>
+                      <span className="font-medium">{selected.mesero_nombre || 'Sin asignar'}</span>
+                    </div>
+                    <div className="flex items-center justify-between rounded-lg bg-muted/50 px-3 py-2.5">
+                      <span className="flex items-center gap-2 text-muted-foreground">
+                        <Armchair className="size-4" /> Zona
+                      </span>
+                      <span className="font-medium">{selected.zona || 'Sin zona'}</span>
+                    </div>
+                  </div>
+
+                  {todosQrYaPagados && (
+                    <div className="rounded-lg border border-green-500/30 bg-green-500/10 px-3 py-2.5 flex items-center gap-2 text-green-700">
+                      <CheckCircle className="size-4 shrink-0" />
+                      <span className="text-xs font-medium">
+                        Este pedido QR ya fue pagado al inicio. No necesita pedir cuenta.
+                      </span>
+                    </div>
+                  )}
+
+                  {cargandoPedidos ? (
+                    <div className="flex items-center justify-center py-6 text-muted-foreground text-sm">
+                      <Loader2 className="size-4 mr-2 animate-spin" />
+                      Cargando pedidos...
+                    </div>
+                  ) : (
+                    pedidosActivos.length > 0 && (
+                      <div className="rounded-lg border border-border bg-card overflow-hidden">
+                        <div className="px-3 py-2 bg-muted/50 border-b border-border flex items-center justify-between">
+                          <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                            Pedidos activos ({pedidosActivos.length})
+                          </span>
+                          {pedidosQrPagados.length > 0 && (
+                            <Badge variant="outline" className="text-[10px] border-green-500/40 text-green-700 bg-green-500/5">
+                              Pagado por QR
+                            </Badge>
+                          )}
+                        </div>
+                        <div className="divide-y divide-border max-h-56 overflow-y-auto">
+                          {pedidosActivos.map((p: any) => {
+                            const items = p.items || []
+                            const itemsCount = items.reduce((s: number, it: any) => s + (it.cantidad || 0), 0)
+                            const esPedidoQrPagado = p.es_qr && p.metodo_pago
+                            const sePuedeEntregar = p.estado === 'listo'
+                            const estadoColor: Record<string, string> = {
+                              pendiente_pago: 'bg-yellow-500/15 text-yellow-700',
+                              en_espera_cocina: 'bg-blue-500/15 text-blue-700',
+                              en_cocina: 'bg-amber-500/15 text-amber-700',
+                              en_preparacion: 'bg-amber-500/20 text-amber-700',
+                              listo: 'bg-green-500/15 text-green-700',
+                              entregado: 'bg-green-500/25 text-green-700',
+                            }
+                            return (
+                              <div key={p.id} className="px-3 py-2.5 flex items-center justify-between gap-3">
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="text-sm font-semibold tabular-nums">
+                                      #{p.numero_pedido || p.id.slice(0, 6)}
+                                    </span>
+                                    <Badge variant="outline" className={cn('text-[10px]', estadoColor[p.estado] || 'bg-muted')}>
+                                      {estadoPedidoTexto[p.estado] || p.estado}
+                                    </Badge>
+                                    {esPedidoQrPagado && (
+                                      <span className="text-[10px] text-muted-foreground">
+                                        {p.metodo_pago}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <p className="text-xs text-muted-foreground mt-0.5 truncate">
+                                    {itemsCount} items
+                                    {p.cocinero_nombre ? ` · Preparado por ${p.cocinero_nombre}` : ''}
+                                  </p>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-sm font-semibold tabular-nums text-primary">
+                                    {currencyDetailed(p.total || 0)}
+                                  </span>
+                                  {sePuedeEntregar && (
+                                    <Button
+                                      size="sm"
+                                      className="bg-green-600 hover:bg-green-700 text-white"
+                                      onClick={() => marcarPedidoEntregado(p.id)}
+                                    >
+                                      <Send className="size-3.5 mr-1" />
+                                      Entregar
+                                    </Button>
+                                  )}
+                                </div>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )
+                  )}
                 </div>
-                <div className="flex gap-2">
-                  <Button variant="outline" onClick={() => setSelected(null)}>Cerrar</Button>
-                  {selected.estado === 'libre' && (
-                    <Button onClick={() => handleUpdateEstado(selected.id, 'ocupada')}>
-                      Abrir mesa
+
+                <DialogFooter className="flex flex-wrap gap-2 justify-between">
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="sm" onClick={() => {
+                      setEditingMesa(selected)
+                      setOpenEditMesa(true)
+                      setSelected(null)
+                    }}>
+                      <Edit2 className="size-4 mr-2" />
+                      Editar
                     </Button>
-                  )}
-                  {selected.estado === 'ocupada' && (
-                    <Button onClick={() => handleUpdateEstado(selected.id, 'cuenta')}>
-                      Pedir cuenta
+                    <Button variant="destructive" size="sm" onClick={() => {
+                      handleDeleteMesa(selected.id, selected.nombre)
+                    }}>
+                      <Trash2 className="size-4 mr-2" />
+                      Eliminar
                     </Button>
-                  )}
-                  {selected.estado !== 'libre' && selected.estado !== 'reservada' && (
-                    <Button variant="secondary" onClick={() => handleUpdateEstado(selected.id, 'libre')}>
-                      Liberar mesa
-                    </Button>
-                  )}
-                </div>
-              </DialogFooter>
-            </>
-          )}
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button variant="outline" onClick={() => setSelected(null)}>Cerrar</Button>
+                    {selected.estado === 'libre' && (
+                      <Button onClick={() => handleUpdateEstado(selected.id, 'ocupada')}>
+                        Abrir mesa
+                      </Button>
+                    )}
+                    {selected.estado === 'ocupada' && !todosQrYaPagados && (
+                      <Button onClick={() => handleUpdateEstado(selected.id, 'cuenta')}>
+                        <Receipt className="size-4 mr-2" />
+                        Pedir cuenta
+                      </Button>
+                    )}
+                    {todosQrYaPagados && (
+                      <Button variant="secondary" onClick={() => handleUpdateEstado(selected.id, 'libre')}>
+                        Liberar y cerrar
+                      </Button>
+                    )}
+                    {selected.estado !== 'libre' && selected.estado !== 'reservada' && !todosQrYaPagados && (
+                      <Button variant="secondary" onClick={() => handleUpdateEstado(selected.id, 'libre')}>
+                        Liberar mesa
+                      </Button>
+                    )}
+                  </div>
+                </DialogFooter>
+              </>
+            )
+          })()}
         </DialogContent>
       </Dialog>
     </div>
