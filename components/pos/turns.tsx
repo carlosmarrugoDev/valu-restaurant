@@ -65,7 +65,7 @@ export function Turns() {
   const cargarDatos = async () => {
     setCargando(true)
     try {
-      const turnosMap = loadTurnosLocales(user?.tenantId)
+      const turnosMap = loadTurnosLocales((user as any)?.tenantId)
 
       const resEmp = await fetch('/api/empleados', {
         headers: { 'Content-Type': 'application/json' },
@@ -166,7 +166,7 @@ export function Turns() {
       const next = prev.map(e => e.id === id ? { ...e, enTurno: !e.enTurno } : e)
       const map: Record<string, boolean> = {}
       next.forEach(e => { map[e.id] = e.enTurno })
-      saveTurnosLocales(user?.tenantId, map)
+      saveTurnosLocales((user as any)?.tenantId, map)
       return next
     })
   }

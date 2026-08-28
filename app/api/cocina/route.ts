@@ -130,16 +130,23 @@ export async function PATCH(req: NextRequest) {
       }
 
       const cocineroActual = pedidoAsociado?.cocinero_id || user.userId
-      const updatesItem: any = { estado: 'listo' }
-      if (!pedidoAsociado?.cocinero_id) {
-        updatesItem.cocinero_id = user.userId
+      try {
+        const updatesItem: any = { estado: 'listo' }
+        if (!pedidoAsociado?.cocinero_id) {
+          updatesItem.cocinero_id = user.userId
+        }
+        const { error: itemError } = await supabase
+          .from('pedido_items')
+          .update(updatesItem)
+          .eq('id', item_id)
+        if (itemError) throw itemError
+      } catch {
+        const { error: itemError } = await supabase
+          .from('pedido_items')
+          .update({ estado: 'listo' } as any)
+          .eq('id', item_id)
+        if (itemError) throw itemError
       }
-      const { error: itemError } = await supabase
-        .from('pedido_items')
-        .update(updatesItem)
-        .eq('id', item_id)
-
-      if (itemError) throw itemError
 
       const pedidoIdRef = pedido_id || itemPedido?.pedido_id
       const { data: items } = await supabase
@@ -198,11 +205,19 @@ export async function PATCH(req: NextRequest) {
     }
 
     if (pedido_id && pedidoAsociado) {
-      await supabase
-        .from('pedido_items')
-        .update({ estado: 'listo', cocinero_id: pedidoAsociado.cocinero_id || user.userId })
-        .eq('pedido_id', pedido_id)
-        .in('estado', ['pendiente_pago', 'pendiente', 'en_cocina', 'en_preparacion'])
+      try {
+        await supabase
+          .from('pedido_items')
+          .update({ estado: 'listo', cocinero_id: pedidoAsociado.cocinero_id || user.userId } as any)
+          .eq('pedido_id', pedido_id)
+          .in('estado', ['pendiente_pago', 'pendiente', 'en_cocina', 'en_preparacion'])
+      } catch {
+        await supabase
+          .from('pedido_items')
+          .update({ estado: 'listo' } as any)
+          .eq('pedido_id', pedido_id)
+          .in('estado', ['pendiente_pago', 'pendiente', 'en_cocina', 'en_preparacion'])
+      }
 
       const ahora = new Date().toISOString()
       const cocineroFinal = pedidoAsociado.cocinero_id || user.userId

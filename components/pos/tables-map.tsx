@@ -322,7 +322,7 @@ export function TablesMap() {
               </div>
               <div>
                 <Label>Forma</Label>
-                <Select value={newMesaForm.forma} onValueChange={handleNewFormaChange}>
+                <Select value={newMesaForm.forma} onValueChange={(value) => handleNewFormaChange(value as string)}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>

@@ -375,7 +375,7 @@ export function ProductManager() {
               <CardDescription>{filtered.length} resultados</CardDescription>
             </div>
             <div className="flex flex-wrap gap-2 items-center">
-              <Select value={filtroCategoria} onValueChange={handleCategoriaChange}>
+              <Select value={filtroCategoria} onValueChange={(value) => handleCategoriaChange(value ?? 'all')}>
                 <SelectTrigger className="w-44">
                   <SelectValue placeholder="Categoría" />
                 </SelectTrigger>
@@ -518,7 +518,7 @@ export function ProductManager() {
               </div>
               <div className="space-y-2">
                 <Label>Categoría</Label>
-                <Select value={form.categoria_id || 'none'} onValueChange={handleFormCategoriaChange}>
+                <Select value={form.categoria_id || 'none'} onValueChange={(value: string | null) => handleFormCategoriaChange(value ?? '')}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -543,7 +543,7 @@ export function ProductManager() {
               </div>
               <div className="space-y-2">
                 <Label>Estado</Label>
-                <Select value={form.disponible ? 'si' : 'no'} onValueChange={handleDisponibleChange}>
+                <Select value={form.disponible ? 'si' : 'no'} onValueChange={(value) => handleDisponibleChange(value as string)}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
