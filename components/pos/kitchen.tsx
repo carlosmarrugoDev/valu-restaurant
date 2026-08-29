@@ -29,10 +29,18 @@ function timerStyle(segundos: number) {
 }
 
 function formatTiempo(segundos: number) {
-  const mins = Math.floor(segundos / 60)
-  const secs = segundos % 60
-  if (mins === 0) return `${secs}s`
-  return `${mins}m ${secs}s`
+  const mins = Math.max(0, Math.floor(segundos / 60))
+  const horas = Math.floor(mins / 60)
+  const minsRest = mins % 60
+  if (horas >= 1) {
+    return horas === 1 && minsRest === 0
+      ? '1 h'
+      : minsRest === 0
+        ? `${horas} h`
+        : `${horas}h ${minsRest}m`
+  }
+  if (mins === 0) return '<1m'
+  return `${mins} min`
 }
 
 export function Kitchen() {

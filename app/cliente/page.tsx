@@ -17,7 +17,11 @@ import {
   CheckCircle2,
   AlertTriangle,
   UserCheck,
+  Megaphone,
+  Sparkles,
 } from "lucide-react";
+import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 
 const IVA = 0.16;
 const metodosPago = ["Efectivo", "Tarjeta", "Nequi", "Daviplata"];
@@ -156,6 +160,90 @@ function ClientPageContent() {
     loadData(slug, mid);
   }, [mesa, mesaUuid]);
 
+  const notificadoEstadosRef = useRef<Record<string, boolean>>({});
+
+  const mostrarNotificacionEstado = (nuevoEstado: EstadoPedido, previo?: EstadoPedido) => {
+    if (previo === nuevoEstado) return;
+    const key = `${pedidoActivoRef.current?.id || "x"}_${nuevoEstado}`;
+    if (notificadoEstadosRef.current[key]) return;
+    notificadoEstadosRef.current[key] = true;
+
+    try {
+      if (navigator.vibrate) {
+        if (nuevoEstado === "listo") {
+          navigator.vibrate([300, 150, 300, 150, 300, 150, 600]);
+        } else if (nuevoEstado === "entregado") {
+          navigator.vibrate([200, 100, 200]);
+        } else {
+          navigator.vibrate(150);
+        }
+      }
+    } catch {}
+
+    const mensajes: Record<string, { title: string; body: string; icon: string }> = {
+      en_espera_cocina: {
+        title: "Pedido confirmado",
+        body: "Tu pedido ya esta en cola de cocina.",
+        icon: "info",
+      },
+      en_preparacion: {
+        title: "En cocina",
+        body: "Un cocinero ya esta preparando tu pedido.",
+        icon: "info",
+      },
+      listo: {
+        title: "Pedido LISTO",
+        body: `Mesa ${mesaNombre} - Acercate al mostrador o espera en tu mesa.`,
+        icon: "success",
+      },
+      entregado: {
+        title: "Pedido entregado",
+        body: "Gracias por tu visita. Puedes seguir ordenando.",
+        icon: "success",
+      },
+      cancelado: {
+        title: "Pedido cancelado",
+        body: "Tu pedido ha sido cancelado.",
+        icon: "error",
+      },
+    };
+
+    const cfg = mensajes[nuevoEstado];
+    if (cfg) {
+      if ("Notification" in window && Notification.permission === "granted") {
+        try {
+          new Notification(cfg.title, {
+            body: cfg.body,
+            icon: "/icon-light-32x32.png",
+            badge: "/icon-light-32x32.png",
+          });
+        } catch {}
+      }
+
+      const toastCfg: any = {
+        duration: nuevoEstado === "listo" ? 15000 : 8000,
+        closeButton: true,
+      };
+
+      if (cfg.icon === "success") {
+        toast.success(cfg.title, {
+          ...toastCfg,
+          description: cfg.body,
+        });
+      } else if (cfg.icon === "error") {
+        toast.error(cfg.title, {
+          ...toastCfg,
+          description: cfg.body,
+        });
+      } else {
+        toast.message(cfg.title, {
+          ...toastCfg,
+          description: cfg.body,
+        });
+      }
+    }
+  };
+
   useEffect(() => {
     if (!mesaId || !mesaEncontrada) return;
     let isMounted = true;
@@ -163,48 +251,63 @@ function ClientPageContent() {
     const verificarPedido = async () => {
       if (!isMounted) return;
       try {
-        const storedId = pedidoActivoRef.current?.id || sessionStorage.getItem("pedido_cliente_id");
+        const storedId =
+          pedidoActivoRef.current?.id || sessionStorage.getItem("pedido_cliente_id");
         const qs = new URLSearchParams();
         if (storedId) qs.set("id", storedId);
         qs.set("mesa_id", mesaEncontrada.id);
         if (sesionClienteId) qs.set("cliente_sesion", sesionClienteId);
         const pedidosRes = await fetch(`/api/cliente/pedidos?${qs.toString()}`);
+        if (!pedidosRes.ok) return;
         const pedidosData = await pedidosRes.json();
         const pedidos = pedidosData.pedidos || [];
         const pedidoServidor = pedidosData.pedido || null;
 
-        const activos = pedidos.filter((p: any) =>
+        const todos = [
+          ...(pedidoServidor ? [pedidoServidor] : []),
+          ...pedidos,
+        ];
+        const vistos = new Set<string>();
+        const unicos: any[] = [];
+        for (const p of todos) {
+          if (!p || !p.id || vistos.has(p.id)) continue;
+          vistos.add(p.id);
+          unicos.push(p);
+        }
+
+        const activos = unicos.filter((p: any) =>
           ESTADOS_ACTIVOS.includes(p.estado),
         );
 
-        const storedPedido = storedId ? activos.find((p: any) => p.id === storedId) : null;
+        let storedPedido = storedId
+          ? (activos.find((p: any) => p.id === storedId) ||
+              unicos.find((p: any) => p.id === storedId))
+          : null;
 
-        if (storedPedido) {
-          const segundos = Math.floor(
-            (Date.now() - new Date(storedPedido.fecha_creacion).getTime()) / 1000,
+        if (!storedPedido && storedId && pedidoServidor && pedidoServidor.id === storedId) {
+          storedPedido = pedidoServidor;
+        }
+
+        if (storedPedido && ESTADOS_ACTIVOS.includes(storedPedido.estado)) {
+          const segundos = Math.max(
+            0,
+            Math.floor(
+              (Date.now() - new Date(storedPedido.fecha_creacion).getTime()) / 1000,
+            ),
           );
 
-          const cambioEstado =
-            pedidoActivoRef.current?.estado !== storedPedido.estado;
+          const estadoPrevio = pedidoActivoRef.current?.estado;
+          const cambioEstado = estadoPrevio !== storedPedido.estado;
 
-          if (
-            cambioEstado &&
-            storedPedido.estado === "listo" &&
-            !listoNotificadoRef.current
-          ) {
+          if (cambioEstado) {
+            mostrarNotificacionEstado(
+              storedPedido.estado as EstadoPedido,
+              estadoPrevio as EstadoPedido,
+            );
+          }
+
+          if (storedPedido.estado === "listo") {
             listoNotificadoRef.current = true;
-            if (navigator.vibrate) {
-              navigator.vibrate([200, 100, 200, 100, 400]);
-            }
-            if (
-              "Notification" in window &&
-              Notification.permission === "granted"
-            ) {
-              new Notification("Tu pedido esta listo", {
-                body: `Mesa ${mesaNombre} - Acercate al mostrador o espera en tu mesa`,
-                icon: "/icon.png",
-              });
-            }
           }
 
           pedidoActivoRef.current = storedPedido;
@@ -215,26 +318,17 @@ function ClientPageContent() {
           setPedidoCerradoAuto(false);
           setAvisoSesionOtroPedido(false);
           setVerEstadoPedido(true);
-        } else if (storedId && !storedPedido && (
-          pedidoServidor &&
-          ["entregado", "pagado", "cancelado"].includes(pedidoServidor.estado)
-        )) {
-          pedidoActivoRef.current = null;
-          setPedidoActivo(null);
-          sessionStorage.removeItem("pedido_cliente_id");
-          setUltimoEstado("");
-          setAvisoSesionOtroPedido(false);
-          if (verEstadoPedido) {
-            setPedidoCerradoAuto(true);
-            setTimeout(() => {
-              setVerEstadoPedido(false);
-              setPedidoCerradoAuto(false);
-              listoNotificadoRef.current = false;
-            }, 4000);
-          }
-        } else if (storedId && !storedPedido && pedidoActivoRef.current && ESTADOS_ACTIVOS.includes(pedidoActivoRef.current.estado)) {
-          return;
         } else if (storedId && !storedPedido) {
+          const terminado =
+            pedidoServidor &&
+            pedidoServidor.id === storedId &&
+            ["entregado", "pagado", "cancelado"].includes(pedidoServidor.estado);
+          if (terminado) {
+            mostrarNotificacionEstado(
+              pedidoServidor!.estado as EstadoPedido,
+              pedidoActivoRef.current?.estado as EstadoPedido,
+            );
+          }
           pedidoActivoRef.current = null;
           setPedidoActivo(null);
           sessionStorage.removeItem("pedido_cliente_id");
@@ -246,7 +340,7 @@ function ClientPageContent() {
               setVerEstadoPedido(false);
               setPedidoCerradoAuto(false);
               listoNotificadoRef.current = false;
-            }, 4000);
+            }, 5000);
           }
         } else if (!storedId && activos.length > 0) {
           setAvisoSesionOtroPedido(true);
@@ -258,14 +352,6 @@ function ClientPageContent() {
           sessionStorage.removeItem("pedido_cliente_id");
           setUltimoEstado("");
           setAvisoSesionOtroPedido(false);
-          if (verEstadoPedido) {
-            setPedidoCerradoAuto(true);
-            setTimeout(() => {
-              setVerEstadoPedido(false);
-              setPedidoCerradoAuto(false);
-              listoNotificadoRef.current = false;
-            }, 4000);
-          }
         }
       } catch (error) {
         console.error("Error verificando pedido:", error);
@@ -273,9 +359,9 @@ function ClientPageContent() {
     };
 
     verificarPedido();
-    const interval = setInterval(verificarPedido, 3000);
+    const interval = setInterval(verificarPedido, 2500);
     if ("Notification" in window && Notification.permission === "default") {
-      Notification.requestPermission();
+      Notification.requestPermission().catch(() => {});
     }
     return () => {
       isMounted = false;
@@ -323,14 +409,33 @@ function ClientPageContent() {
 
       const storedPedidoId = sessionStorage.getItem("pedido_cliente_id");
       if (storedPedidoId && data.mesa?.id) {
-        const pedidoRes = await fetch(`/api/cliente/pedidos?id=${storedPedidoId}&mesa_id=${data.mesa.id}&cliente_sesion=${sesionClienteId || ''}`);
+        const sesId = sessionStorage.getItem("sesion_cliente_id") || sesionClienteId || "";
+        const pedidoRes = await fetch(`/api/cliente/pedidos?id=${storedPedidoId}&mesa_id=${data.mesa.id}&cliente_sesion=${sesId}`);
         const pedidoData = await pedidoRes.json();
         const pedido = pedidoData.pedido;
-        if (pedido && ESTADOS_ACTIVOS.includes(pedido.estado)) {
+        const estadosVigentes: EstadoPedido[] = [
+          ...ESTADOS_ACTIVOS as EstadoPedido[],
+          "entregado",
+          "pagado",
+        ];
+        if (pedido && estadosVigentes.includes(pedido.estado as EstadoPedido)) {
           pedidoActivoRef.current = pedido;
           setPedidoActivo(pedido);
-          setAvisoSesionOtroPedido(false);
-          setVerEstadoPedido(true);
+          if (ESTADOS_ACTIVOS.includes(pedido.estado)) {
+            setAvisoSesionOtroPedido(false);
+            setVerEstadoPedido(true);
+          } else {
+            sessionStorage.removeItem("pedido_cliente_id");
+            setPedidoCerradoAuto(true);
+            setVerEstadoPedido(true);
+            setTimeout(() => {
+              setVerEstadoPedido(false);
+              setPedidoCerradoAuto(false);
+              setPedidoActivo(null);
+              pedidoActivoRef.current = null;
+              listoNotificadoRef.current = false;
+            }, 5000);
+          }
         } else {
           sessionStorage.removeItem("pedido_cliente_id");
           if (pedidoData.pedidos && pedidoData.pedidos.some((p: any) => ESTADOS_ACTIVOS.includes(p.estado))) {
@@ -412,6 +517,7 @@ function ClientPageContent() {
         body: JSON.stringify({
           mesa_id: mesaEncontrada.id,
           metodo_pago: metodoPago,
+          cliente_sesion_id: sesionClienteId,
           items: cart.map((item) => ({
             producto_id: item.id,
             cantidad: item.cantidad,
@@ -484,11 +590,39 @@ function ClientPageContent() {
   const totalCart = subtotalCart + ivaCart;
 
   const formatTiempo = (segundos: number) => {
-    const mins = Math.floor(segundos / 60);
-    const secs = segundos % 60;
-    if (mins === 0) return `${secs}s`;
-    if (mins > 30) return `${mins}m ${secs}s`;
-    return `${mins}m ${secs}s`;
+    const mins = Math.max(0, Math.floor(segundos / 60));
+    const horas = Math.floor(mins / 60);
+    const minsRestantes = mins % 60;
+    if (horas >= 1) {
+      if (minsRestantes === 0) return `${horas} h`;
+      return `${horas} h ${minsRestantes} min`;
+    }
+    if (mins === 0) return "Menos de 1 min";
+    return `${mins} min`;
+  };
+
+  const formatTiempoEstimado = (minutos: number | undefined | null) => {
+    if (!minutos || minutos <= 0) return "";
+    if (minutos < 60) return `~${minutos} min`;
+    const h = Math.floor(minutos / 60);
+    const m = minutos % 60;
+    return m === 0 ? `~${h} h` : `~${h} h ${m} min`;
+  };
+
+  const tiempoRestanteTexto = () => {
+    if (!pedidoActivo) return "";
+    const transcurridoMin = Math.max(0, Math.floor(tiempoTranscurrido / 60));
+    const estimado = pedidoActivo.tiempo_estimado || 10;
+    const restante = estimado - transcurridoMin;
+    if (restante <= 0) {
+      if (transcurridoMin >= 60) {
+        const h = Math.floor(transcurridoMin / 60);
+        const m = transcurridoMin % 60;
+        return m === 0 ? `${h} h de espera` : `${h} h ${m} min de espera`;
+      }
+      return `${transcurridoMin} min de espera`;
+    }
+    return `Listo en aprox. ${restante} min`;
   };
 
   if (loading) {
@@ -633,142 +767,187 @@ function ClientPageContent() {
             <div className="p-6 space-y-4">
               <div className="flex items-center justify-between">
                 <h3 className="font-display text-lg font-bold flex items-center gap-2">
-                  <RefreshCw className="size-4 text-muted-foreground" />
-                  Seguimiento
+                  <RefreshCw className="size-4 text-muted-foreground animate-spin" />
+                  Seguimiento en vivo
                 </h3>
-                {estado !== "entregado" && estado !== "cancelado" && (
-                  <span className="text-sm font-medium flex items-center gap-1 text-muted-foreground">
-                    <Clock className="size-4" />
-                    {formatTiempo(tiempoTranscurrido)}
-                  </span>
+                {estado !== "entregado" && estado !== "cancelado" && estado !== "pagado" && (
+                  <div className="flex flex-col items-end gap-0.5">
+                    <span
+                      className={`text-sm font-bold flex items-center gap-1 tabular-nums ${
+                        estado === "listo"
+                          ? "text-green-700"
+                          : Math.floor(tiempoTranscurrido / 60) >= (pedidoActivo.tiempo_estimado || 10)
+                            ? "text-destructive"
+                            : Math.floor(tiempoTranscurrido / 60) >= Math.floor((pedidoActivo.tiempo_estimado || 10) * 0.7)
+                              ? "text-amber-700"
+                              : "text-muted-foreground"
+                      }`}
+                    >
+                      <Clock className="size-4" />
+                      Tiempo: {formatTiempo(tiempoTranscurrido)}
+                    </span>
+                    <span className="text-[11px] text-muted-foreground tabular-nums">
+                      {estado === "listo"
+                        ? "Listo para reclamar"
+                        : tiempoRestanteTexto()}
+                    </span>
+                  </div>
                 )}
               </div>
 
-              <div className="mt-2">
-                <div className="flex items-center justify-between text-[10px] mb-2 px-1 tracking-wide">
-                  {BARRA.map((b) => {
-                    const completado = fase > b.fase
-                    const actual = fase === b.fase
-                    return (
-                      <span
-                        key={b.key}
-                        className={
-                          actual
-                            ? "text-primary font-bold scale-110 transition-transform"
-                            : completado
-                              ? "text-green-600 font-medium"
-                              : "text-muted-foreground"
-                        }
-                      >
-                        {b.label}
-                      </span>
-                    )
-                  })}
-                </div>
-                <div className="relative h-2 bg-muted rounded-full overflow-hidden">
-                  <div
-                    className="absolute h-full bg-primary rounded-full transition-all duration-700 ease-in-out"
-                    style={{ width: `${porcentaje}%` }}
-                  />
-                  <div className="absolute inset-0 flex justify-between px-1">
+              {(estado === "en_espera_cocina" || estado === "en_preparacion" || estado === "en_cocina" || estado === "listo") && (
+                <div className="mt-1">
+                  <div className="flex items-center justify-between text-[11px] mb-2 px-1 font-semibold tracking-wide">
                     {BARRA.map((b) => {
                       const completado = fase > b.fase
                       const actual = fase === b.fase
                       return (
-                        <div
+                        <span
                           key={b.key}
-                          className={`size-3 rounded-full -mt-0.5 ${
-                            completado
-                              ? "bg-green-600 shadow"
-                              : actual
-                                ? "bg-primary shadow ring-2 ring-primary/20"
-                                : "bg-muted"
-                          }`}
-                        />
+                          className={cn(
+                            "transition-all duration-300",
+                            actual
+                              ? "text-primary scale-110"
+                              : completado
+                                ? "text-green-700"
+                                : "text-muted-foreground"
+                          )}
+                        >
+                          {b.label}
+                        </span>
                       )
                     })}
                   </div>
+                  <div className="relative h-3 bg-muted rounded-full overflow-hidden">
+                    <div
+                      className="absolute h-full bg-gradient-to-r from-primary to-green-500 rounded-full transition-all duration-700 ease-in-out"
+                      style={{ width: `${porcentaje}%` }}
+                    />
+                    <div className="absolute inset-0 flex justify-between px-1 -mt-0.5">
+                      {BARRA.map((b) => {
+                        const completado = fase > b.fase
+                        const actual = fase === b.fase
+                        return (
+                          <div
+                            key={b.key}
+                            className={cn(
+                              "size-3.5 rounded-full mt-0.5 transition-all",
+                              completado
+                                ? "bg-green-600 shadow ring-2 ring-green-200"
+                                : actual
+                                  ? "bg-primary shadow-lg ring-2 ring-primary/30 animate-pulse"
+                                  : "bg-muted border-2 border-white"
+                            )}
+                          />
+                        )
+                      })}
+                    </div>
+                  </div>
                 </div>
-              </div>
+              )}
 
-              <div className="space-y-3 pt-2 text-sm">
-                {estado === "en_espera_cocina" && (
-                  <div className="bg-blue-500/10 border border-blue-500/20 text-blue-800 p-3 rounded-xl flex items-start gap-2">
-                    <UserCheck className="size-5 shrink-0 mt-0.5" />
+              <div className="space-y-3 pt-2">
+                {estado === "pendiente_pago" && (
+                  <div className="bg-yellow-50 border-2 border-yellow-200 text-yellow-900 p-4 rounded-xl flex items-start gap-3">
+                    <AlertTriangle className="size-6 shrink-0 mt-0.5 text-yellow-600 animate-pulse" />
                     <div>
-                      <p className="font-semibold">
-                        Tu pedido esta en cola de cocina
+                      <p className="font-bold">Confirmando pago</p>
+                      <p className="text-xs opacity-80 mt-1">
+                        Estamos validando tu pago. Por favor espera un momento.
                       </p>
-                      <p className="text-xs opacity-80">
-                        Esperando a que un cocinero tome tu pedido para
-                        comenzar la preparacion.
+                    </div>
+                  </div>
+                )}
+                {estado === "en_espera_cocina" && (
+                  <div className="bg-blue-50 border-2 border-blue-200 text-blue-900 p-4 rounded-xl flex items-start gap-3">
+                    <UserCheck className="size-6 shrink-0 mt-0.5 text-blue-600" />
+                    <div>
+                      <p className="font-bold">Pedido recibido en cocina</p>
+                      <p className="text-xs opacity-80 mt-1">
+                        Tu pedido esta en cola. En cuanto un cocinero este
+                        disponible, comenzara a prepararlo.
+                        <span className="block mt-1 text-blue-700 font-medium">
+                          Tiempo estimado: {formatTiempoEstimado(pedidoActivo.tiempo_estimado)}
+                        </span>
                       </p>
                     </div>
                   </div>
                 )}
                 {(estado === "en_preparacion" || estado === "en_cocina") && (
-                  <div className="bg-amber-500/10 border border-amber-500/20 text-amber-800 p-3 rounded-xl flex items-start gap-2">
-                    <ChefHat className="size-5 shrink-0 mt-0.5 animate-pulse" />
+                  <div className="bg-amber-50 border-2 border-amber-300 text-amber-900 p-4 rounded-xl flex items-start gap-3">
+                    <ChefHat className="size-6 shrink-0 mt-0.5 text-amber-700 animate-bounce" />
                     <div>
-                      <p className="font-semibold">
+                      <p className="font-bold">
                         {pedidoActivo.cocinero_nombre
-                          ? `${pedidoActivo.cocinero_nombre} ya esta preparando tu pedido`
-                          : "Tu pedido esta en preparacion"}
+                          ? `${pedidoActivo.cocinero_nombre} esta preparando tu pedido`
+                          : "Tu pedido esta en cocina"}
                       </p>
-                      <p className="text-xs opacity-80">
-                        En este momento se esta cocinando. Te avisaremos cuando
-                        este listo.
+                      <p className="text-xs opacity-80 mt-1">
+                        En este momento se esta cocinando tu comida.
+                        <span className="block mt-1 font-medium">
+                          {tiempoRestanteTexto()}
+                        </span>
                       </p>
                     </div>
                   </div>
                 )}
                 {estado === "listo" && (
-                  <div className="bg-green-600 text-white p-4 rounded-xl shadow-lg">
-                    <p className="font-bold text-center">
-                      PEDIDO LISTO PARA RECLAMAR
+                  <div className="bg-gradient-to-br from-green-500 to-emerald-600 text-white p-5 rounded-2xl shadow-xl border-2 border-green-400">
+                    <div className="flex items-center gap-2 mb-2 justify-center">
+                      <Sparkles className="size-5 animate-pulse" />
+                      <Megaphone className="size-5 animate-bounce" />
+                      <Bell className="size-5 animate-ring" />
+                    </div>
+                    <p className="font-black text-xl text-center uppercase tracking-wide">
+                      Tu pedido esta LISTO
                     </p>
-                    <p className="text-xs text-center opacity-90 mt-1">
-                      Acercate al mostrador mostrando el comprobante, o espera
-                      en tu mesa.
+                    <p className="text-sm text-center opacity-95 mt-2 font-medium">
+                      Acercate al mostrador con tu numero de pedido o espera en
+                      tu mesa.
                     </p>
+                    <div className="mt-3 bg-white/20 rounded-xl p-3 text-center">
+                      <p className="text-xs opacity-90">Codigo de reclamo</p>
+                      <p className="text-3xl font-black tracking-widest tabular-nums">
+                        #{pedidoActivo.numero_pedido || pedidoActivo.id.slice(0, 6)}
+                      </p>
+                    </div>
                   </div>
                 )}
                 {estado === "entregado" && (
-                  <div className="bg-green-500/10 border border-green-500/20 text-green-800 p-3 rounded-xl flex items-start gap-2">
-                    <CheckCircle2 className="size-5 shrink-0 mt-0.5" />
+                  <div className="bg-green-50 border-2 border-green-300 text-green-900 p-4 rounded-xl flex items-start gap-3">
+                    <CheckCircle2 className="size-6 shrink-0 mt-0.5 text-green-700" />
                     <div>
-                      <p className="font-semibold">Entregado exitosamente</p>
-                      <p className="text-xs opacity-80">
-                        Gracias por tu visita. Puedes seguir ordenando desde
-                        este mismo QR.
+                      <p className="font-bold">Pedido entregado con exito</p>
+                      <p className="text-xs opacity-80 mt-1">
+                        Gracias por tu visita. Disfruta tu comida. Puedes seguir
+                        ordenando mas productos desde este mismo QR.
                       </p>
                     </div>
                   </div>
                 )}
                 {estado === "cancelado" && (
-                  <div className="bg-red-500/10 border border-red-500/20 text-red-800 p-3 rounded-xl flex items-start gap-2">
-                    <XCircle className="size-5 shrink-0 mt-0.5" />
+                  <div className="bg-red-50 border-2 border-red-200 text-red-900 p-4 rounded-xl flex items-start gap-3">
+                    <XCircle className="size-6 shrink-0 mt-0.5 text-red-600" />
                     <div>
-                      <p className="font-semibold">Pedido cancelado</p>
-                      <p className="text-xs opacity-80">
-                        {pedidoActivo.motivo_cancelacion || "Sin detalle"}
+                      <p className="font-bold">Pedido cancelado</p>
+                      <p className="text-xs opacity-80 mt-1">
+                        {pedidoActivo.motivo_cancelacion || "El pedido fue cancelado."}
+                      </p>
+                    </div>
+                  </div>
+                )}
+                {estado === "pagado" && (
+                  <div className="bg-green-50 border-2 border-green-300 text-green-900 p-4 rounded-xl flex items-start gap-3">
+                    <CheckCircle2 className="size-6 shrink-0 mt-0.5 text-green-700" />
+                    <div>
+                      <p className="font-bold">Atencion finalizada</p>
+                      <p className="text-xs opacity-80 mt-1">
+                        Tu pedido ha sido cerrado. Puedes ordenar de nuevo.
                       </p>
                     </div>
                   </div>
                 )}
               </div>
-
-              {estado === "pendiente_pago" && (
-                <div className="bg-yellow-500/10 border border-yellow-500/20 text-yellow-800 p-3 rounded-xl flex items-start gap-2">
-                  <AlertTriangle className="size-5 shrink-0 mt-0.5" />
-                  <div>
-                    <p className="font-semibold">Confirmando tu pago simulado</p>
-                    <p className="text-xs opacity-80">
-                      Si persiste, regresa al menu y vuelve a intentar.
-                    </p>
-                  </div>
-                </div>
-              )}
 
               <div className="grid grid-cols-2 gap-2 pt-2">
                 <button

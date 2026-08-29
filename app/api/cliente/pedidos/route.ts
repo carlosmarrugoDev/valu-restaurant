@@ -20,6 +20,7 @@ export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url)
     const pedidoId = searchParams.get('id')
+    const clienteSesion = searchParams.get('cliente_sesion')
     const mesa = await resolverMesaPublica(
       searchParams.get('mesa'),
       searchParams.get('mid') || searchParams.get('mesa_id'),
@@ -33,6 +34,9 @@ export async function GET(req: NextRequest) {
       if (mesa && detalle.mesa_id !== mesa.id) {
         return NextResponse.json({ error: 'Pedido no encontrado' }, { status: 404 })
       }
+      if (clienteSesion && detalle.cliente_sesion_id && detalle.cliente_sesion_id !== clienteSesion) {
+        return NextResponse.json({ success: true, pedido: null, pedidos: [] })
+      }
       return NextResponse.json({ success: true, pedido: detalle, pedidos: [detalle] })
     }
 
@@ -40,7 +44,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Mesa requerida' }, { status: 400 })
     }
 
-    const { data: pedidos } = await supabase
+    const { data: pedidosDirectos } = await supabase
       .from('pedidos')
       .select('*')
       .eq('mesa_id', mesa.id)
@@ -48,6 +52,19 @@ export async function GET(req: NextRequest) {
       .eq('es_qr', true)
       .in('estado', ESTADOS_ACTIVOS)
       .order('fecha_creacion', { ascending: false })
+
+    let pedidos = pedidosDirectos || []
+    if (clienteSesion && pedidos.length > 0) {
+      const coincideSesion = pedidos.filter(
+        (p: any) => p.cliente_sesion_id === clienteSesion,
+      )
+      const sinSesion = pedidos.filter((p: any) => !p.cliente_sesion_id)
+      if (coincideSesion.length > 0) {
+        pedidos = coincideSesion
+      } else {
+        pedidos = sinSesion.slice(0, 1)
+      }
+    }
 
     const conItems = await Promise.all(
       (pedidos || []).map(async (p) => (await pedidoConItems(p.id)) || p),
@@ -62,7 +79,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
-    const { items, metodo_pago, notas } = body
+    const { items, metodo_pago, notas, cliente_sesion_id } = body
 
     const mesa = await resolverMesaPublica(body.mesa || null, body.mesa_id || body.mid || null)
     if (!mesa) {
@@ -166,6 +183,7 @@ export async function POST(req: NextRequest) {
         tiempo_estimado: 10,
         numero_pedido: numeroPedido,
         metodo_pago: metodo_pago || 'simulado',
+        cliente_sesion_id: cliente_sesion_id || null,
       })
       .select()
       .single()

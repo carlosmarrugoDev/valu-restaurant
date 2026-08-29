@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import {
   QrCode, ShoppingCart, Search, Package, Loader2, X, Plus, Minus,
   Banknote, CreditCard, Smartphone, CheckCircle2, Clock, ChefHat,
@@ -81,11 +81,14 @@ export function ClientMode() {
     loadData()
   }, [])
 
+  const estadosNotificadosRef = useRef<Record<string, boolean>>({})
+
   useEffect(() => {
     if (!pedidoActivo || !pollingPedidos) return
     const interval = setInterval(async () => {
       try {
         const res = await fetch(`/api/pedidos?activos=true&mesa_id=${pedidoActivo.mesa_id}`)
+        if (!res.ok) return
         const data = await res.json()
         const miPedido = data.pedidos?.find((p: any) => p.id === pedidoActivo.id)
         if (miPedido) {
@@ -94,20 +97,48 @@ export function ClientMode() {
             estado: miPedido.estado as EstadoPedido,
             items: miPedido.items || pedidoActivo.items,
           }
-          if (miPedido.estado === 'listo' && pedidoActivo.estado !== 'listo') {
-            try {
-              if ('vibrate' in navigator) navigator.vibrate([200, 100, 200, 100, 400])
-            } catch {}
-            toast.success('Tu pedido esta listo!', { duration: 8000 })
+          const estadoAnterior = pedidoActivo.estado
+          const estadoNuevo = miPedido.estado as EstadoPedido
+          if (estadoAnterior !== estadoNuevo) {
+            const key = `${pedidoActivo.id}_${estadoNuevo}`
+            if (!estadosNotificadosRef.current[key]) {
+              estadosNotificadosRef.current[key] = true
+              try {
+                if ('vibrate' in navigator) {
+                  if (estadoNuevo === 'listo') {
+                    navigator.vibrate([300, 150, 300, 150, 300, 150, 600])
+                  } else {
+                    navigator.vibrate(150)
+                  }
+                }
+              } catch {}
+              if (estadoNuevo === 'listo') {
+                toast.success('Tu pedido esta listo!', {
+                  duration: 15000,
+                  description: 'Acercate al mostrador o espera en tu mesa.',
+                  closeButton: true,
+                })
+              } else if (estadoNuevo === 'en_preparacion' || estadoNuevo === 'en_cocina') {
+                toast.message('Cocina tomo tu pedido', {
+                  duration: 8000,
+                  description: 'Ya lo estan preparando.',
+                })
+              } else if (estadoNuevo === 'en_espera_cocina') {
+                toast.message('Pedido confirmado', {
+                  duration: 6000,
+                  description: 'En cola para cocina.',
+                })
+              }
+            }
           }
           setPedidoActivo(actualizado)
           sessionStorage.setItem('pedido_activo', JSON.stringify(actualizado))
-          if (['pagado', 'cancelado'].includes(miPedido.estado)) {
+          if (['pagado', 'cancelado', 'entregado'].includes(miPedido.estado)) {
             setPollingPedidos(false)
           }
         }
       } catch {}
-    }, 3000)
+    }, 2500)
     return () => clearInterval(interval)
   }, [pedidoActivo?.id, pollingPedidos])
 
