@@ -2,7 +2,13 @@
 import { NextResponse, NextRequest } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { requireTenantAuth } from '@/lib/auth'
-import { descontarInsumosPorPedido, revertirDescuentoInsumos, validarStockPedido } from '@/lib/inventario'
+import {
+  descontarInsumosPorPedido,
+  revertirDescuentoInsumos,
+  validarStockPedido,
+  descontarStockProductos,
+  revertirStockProductos,
+} from '@/lib/inventario'
 
 const IVA = 0.16
 
@@ -214,17 +220,29 @@ export async function POST(req: NextRequest) {
       .select()
 
     if (estadoInicial === 'en_espera_cocina') {
+      const itemsMap = items.map((item: any) => ({
+        producto_id: item.producto_id,
+        cantidad: item.cantidad || 1,
+      }))
+
+      const resultadoStockProductos = await descontarStockProductos(user.tenantId!, itemsMap)
+      if (!resultadoStockProductos.success) {
+        await supabase.from('pedidos').delete().eq('id', pedido.id)
+        return NextResponse.json(
+          { error: resultadoStockProductos.error || 'Stock insuficiente' },
+          { status: 409 }
+        )
+      }
+
       const resultadoDescuento = await descontarInsumosPorPedido(
         user.tenantId!,
         user.userId,
         pedido.id,
-        items.map((item: any) => ({
-          producto_id: item.producto_id,
-          cantidad: item.cantidad || 1,
-        }))
+        itemsMap,
       )
 
       if (!resultadoDescuento.success) {
+        await revertirStockProductos(user.tenantId!, itemsMap)
         await supabase.from('pedidos').delete().eq('id', pedido.id)
         return NextResponse.json(
           { error: `No hay suficientes insumos: ${resultadoDescuento.error}` },
@@ -328,16 +346,21 @@ export async function PATCH(req: NextRequest) {
       updates.fecha_tomado = null
     } else if (estado) {
       if (estado === 'pagado' && pedidoConItems.estado === 'pendiente_pago') {
-        const valStock = await validarStockPedido(
-          user.tenantId!,
-          (pedidoConItems.pedido_items || []).map((it: any) => ({
-            producto_id: it.producto_id,
-            cantidad: it.cantidad,
-          }))
-        )
+        const itemsMap = (pedidoConItems.pedido_items || []).map((it: any) => ({
+          producto_id: it.producto_id,
+          cantidad: it.cantidad,
+        }))
+        const valStock = await validarStockPedido(user.tenantId!, itemsMap)
         if (!valStock.success) {
           return NextResponse.json(
             { error: `Stock insuficiente: ${valStock.error}` },
+            { status: 409 }
+          )
+        }
+        const resStockProd = await descontarStockProductos(user.tenantId!, itemsMap)
+        if (!resStockProd.success) {
+          return NextResponse.json(
+            { error: resStockProd.error || 'Stock insuficiente' },
             { status: 409 }
           )
         }
@@ -348,13 +371,27 @@ export async function PATCH(req: NextRequest) {
       } else if (estado === 'listo' && ['en_cocina', 'en_preparacion', 'en_espera_cocina'].includes(pedidoConItems.estado)) {
         updates.estado = 'listo'
         updates.fecha_listo = new Date().toISOString()
-      } else if (estado === 'entregado' && pedidoConItems.estado === 'listo') {
+      } else if (estado === 'entregado' && [
+        'listo',
+        'en_preparacion',
+        'en_cocina',
+        'en_espera_cocina',
+        'pendiente_pago',
+      ].includes(pedidoConItems.estado)) {
         updates.estado = 'entregado'
         updates.fecha_entrega = new Date().toISOString()
+        updates.fecha_listo = pedidoConItems.fecha_listo || new Date().toISOString()
         if (pedidoConItems.es_qr) {
           liberarMesa = true
           updates.hora_cierre = new Date().toISOString()
         }
+        try {
+          await supabase
+            .from('pedido_items')
+            .update({ estado: 'listo', cocinero_id: pedidoConItems.cocinero_id || user.userId } as any)
+            .eq('pedido_id', id)
+            .neq('estado', 'listo')
+        } catch { /* no-op */ }
       } else if (estado === 'pagado' && pedidoConItems.estado === 'listo') {
         updates.estado = 'pagado'
         updates.hora_cierre = new Date().toISOString()
@@ -395,14 +432,16 @@ export async function PATCH(req: NextRequest) {
 
     if (revertirInsumos) {
       const items = pedidoConItems.pedido_items || []
+      const itemsMap = items.map((item: any) => ({
+        producto_id: item.producto_id,
+        cantidad: item.cantidad,
+      }))
+      await revertirStockProductos(user.tenantId!, itemsMap)
       const resultado = await revertirDescuentoInsumos(
         user.tenantId!,
         user.userId,
         id,
-        items.map((item: any) => ({
-          producto_id: item.producto_id,
-          cantidad: item.cantidad,
-        }))
+        itemsMap,
       )
       if (!resultado.success) {
         return NextResponse.json({ error: resultado.error }, { status: 400 })

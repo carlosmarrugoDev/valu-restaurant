@@ -394,6 +394,81 @@ export async function validarStockPedido(
 }
 
 /**
+ * Descontar directamente del campo stock de la tabla productos (productos terminados, bebidas empaquetadas, etc).
+ * Valida el stock ANTES de descontar. Retorna success false si falta stock.
+ */
+export async function descontarStockProductos(
+  tenantId: string,
+  items: { producto_id: string; cantidad: number }[],
+): Promise<{ success: boolean; error?: string }> {
+  for (const it of items) {
+    const cantidad = it.cantidad || 1
+    const { data: producto, error } = await supabase
+      .from('productos')
+      .select('id, nombre, stock')
+      .eq('tenant_id', tenantId)
+      .eq('id', it.producto_id)
+      .maybeSingle()
+    if (error) return { success: false, error: error.message }
+    if (!producto) continue
+    if (producto.stock === null || producto.stock === undefined) continue
+    if (producto.stock < cantidad) {
+      return {
+        success: false,
+        error: `Stock insuficiente para ${producto.nombre}. Disponible: ${producto.stock}, Necesita: ${cantidad}`,
+      }
+    }
+    const nuevoStock = producto.stock - cantidad
+    const { error: updateError } = await supabase
+      .from('productos')
+      .update({
+        stock: nuevoStock,
+        fecha_actualizacion: new Date().toISOString(),
+      })
+      .eq('tenant_id', tenantId)
+      .eq('id', it.producto_id)
+    if (updateError) {
+      return { success: false, error: updateError.message }
+    }
+  }
+  return { success: true }
+}
+
+/**
+ * Revertir descuento de stock de productos (por cancelacion).
+ */
+export async function revertirStockProductos(
+  tenantId: string,
+  items: { producto_id: string; cantidad: number }[],
+): Promise<{ success: boolean; error?: string }> {
+  for (const it of items) {
+    const cantidad = it.cantidad || 1
+    const { data: producto, error } = await supabase
+      .from('productos')
+      .select('id, stock')
+      .eq('tenant_id', tenantId)
+      .eq('id', it.producto_id)
+      .maybeSingle()
+    if (error) return { success: false, error: error.message }
+    if (!producto) continue
+    if (producto.stock === null || producto.stock === undefined) continue
+    const nuevoStock = producto.stock + cantidad
+    const { error: updateError } = await supabase
+      .from('productos')
+      .update({
+        stock: nuevoStock,
+        fecha_actualizacion: new Date().toISOString(),
+      })
+      .eq('tenant_id', tenantId)
+      .eq('id', it.producto_id)
+    if (updateError) {
+      return { success: false, error: updateError.message }
+    }
+  }
+  return { success: true }
+}
+
+/**
  * Calcular costo de un platillo
  */
 export async function calcularCostoPlatillo(

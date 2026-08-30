@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useRef } from 'react'
 import {
-  Clock, Check, CircleCheckBig, ChefHat, Loader2, Bell, Send, Edit2, X, RefreshCw, UserCheck, LogOut
+  Clock, Check, CircleCheckBig, ChefHat, Loader2, Bell, Send, Edit2, X, RefreshCw, UserCheck, LogOut,
+  Megaphone, HandCoins, PackageCheck
 } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
@@ -204,11 +205,38 @@ export function Kitchen() {
         }),
       })
       if (res.ok) {
-        toast.success('Pedido entregado al cliente.')
+        toast.success('Pedido entregado. Mesa liberada y cliente notificado.', {
+          duration: 5000,
+        })
         await loadPedidos()
       } else {
         const data = await res.json()
         toast.error(data.error || 'Error al marcar entregado')
+      }
+    } catch {
+      toast.error('Error de conexion')
+    }
+  }
+
+  const notificarClienteManual = async (pedidoId: string) => {
+    try {
+      const res = await fetch('/api/cocina', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          pedido_id: pedidoId,
+          tipo: 'notificar_cliente'
+        }),
+      })
+      if (res.ok) {
+        toast.success('Cliente notificado nuevamente.', {
+          description: 'El celular del cliente recibio un recordatorio.',
+          duration: 4000,
+        })
+        await loadPedidos()
+      } else {
+        const data = await res.json()
+        toast.error(data.error || 'Error al notificar')
       }
     } catch {
       toast.error('Error de conexion')
@@ -479,21 +507,41 @@ export function Kitchen() {
 
                 <div className="p-3 border-t border-border flex flex-col gap-2">
                   {pedido.estado === 'listo' ? (
-                    <>
+                    <div className="flex flex-col gap-2">
                       <Button
                         size="lg"
                         className="w-full bg-green-600 hover:bg-green-700 text-white"
                         onClick={() => marcarEntregado(pedido.id)}
                       >
-                        <Send className="size-4 mr-2" />
+                        <PackageCheck className="size-4 mr-2" />
                         Marcar como Entregado
                       </Button>
-                      <p className="text-xs text-center text-muted-foreground">
-                        El cliente recibe actualizacion automaticamente.
+                      <div className="grid grid-cols-2 gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="border-amber-500/50 text-amber-700 hover:bg-amber-500/10"
+                          onClick={() => notificarClienteManual(pedido.id)}
+                        >
+                          <Megaphone className="size-3.5 mr-1.5" />
+                          Volver a notificar
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="border-dashed text-muted-foreground"
+                          onClick={() => abrirEditarTiempo(pedido)}
+                        >
+                          <Edit2 className="size-3.5 mr-1.5" />
+                          Ajustar tiempo
+                        </Button>
+                      </div>
+                      <p className="text-[11px] text-center text-muted-foreground pt-1">
+                        Toca Entregado cuando el cliente reciba la orden.
                       </p>
-                    </>
+                    </div>
                   ) : (
-                    <>
+                    <div className="flex flex-col gap-2">
                       {sinAsignar && !tomadoPorOtro && (
                         <Button
                           size="sm"
@@ -513,34 +561,45 @@ export function Kitchen() {
                           onClick={() => liberarPedido(pedido.id)}
                         >
                           <LogOut className="size-3 mr-1.5" />
-                          Liberar pedido
+                          Liberar pedido (otro cocinero lo toma)
                         </Button>
                       )}
                       {tomadoPorOtro && (
                         <p className="text-[11px] text-center text-blue-700 bg-blue-500/5 border border-blue-500/20 rounded-md py-1.5">
-                          En preparacion por {pedido.cocinero_nombre}
+                          En preparacion por <span className="font-semibold">{pedido.cocinero_nombre}</span>
                         </p>
                       )}
-                      <Button
-                        size="lg"
-                        className="w-full"
-                        variant={todosListos ? 'default' : 'secondary'}
-                        onClick={() => marcarPedidoListo(pedido)}
-                        disabled={!todosListos || (tomadoPorOtro && user?.rol !== 'dueno' && user?.rol !== 'gerente')}
-                      >
-                        {todosListos ? (
-                          <>
-                            <Bell className="size-4 mr-2" />
-                            Notificar listo al cliente
-                          </>
-                        ) : (
-                          <>
-                            <Clock className="size-4 mr-2" />
-                            Esperando items...
-                          </>
-                        )}
-                      </Button>
-                    </>
+                      <div className="grid grid-cols-1 gap-2">
+                        <Button
+                          size="lg"
+                          className="w-full"
+                          variant={todosListos ? 'default' : 'secondary'}
+                          onClick={() => marcarPedidoListo(pedido)}
+                          disabled={!todosListos || (tomadoPorOtro && user?.rol !== 'dueno' && user?.rol !== 'gerente')}
+                        >
+                          {todosListos ? (
+                            <>
+                              <Bell className="size-4 mr-2" />
+                              Marcar LISTO y notificar
+                            </>
+                          ) : (
+                            <>
+                              <Clock className="size-4 mr-2" />
+                              Esperando {items.filter((i: any) => i.estado !== 'listo').length} item(s) para marcar listo
+                            </>
+                          )}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="w-full border-green-600/40 text-green-800 hover:bg-green-500/10"
+                          onClick={() => marcarEntregado(pedido.id)}
+                        >
+                          <HandCoins className="size-3.5 mr-1.5" />
+                          Ya lo entregue - marcar directo
+                        </Button>
+                      </div>
+                    </div>
                   )}
                 </div>
               </div>

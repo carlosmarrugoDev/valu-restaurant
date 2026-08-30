@@ -205,6 +205,22 @@ export async function PATCH(req: NextRequest) {
     }
 
     if (pedido_id && pedidoAsociado) {
+      if (tipo === 'notificar_cliente') {
+        const ahora = new Date().toISOString()
+        try {
+          await supabase
+            .from('pedidos')
+            .update({
+              fecha_actualizacion: ahora,
+            } as any)
+            .eq('id', pedido_id)
+            .eq('tenant_id', user.tenantId)
+        } catch (e) {
+          return NextResponse.json({ error: 'No se pudo actualizar el pedido' }, { status: 500 })
+        }
+        return NextResponse.json({ success: true, message: 'Cliente notificado' })
+      }
+
       try {
         await supabase
           .from('pedido_items')

@@ -161,11 +161,21 @@ function ClientPageContent() {
   }, [mesa, mesaUuid]);
 
   const notificadoEstadosRef = useRef<Record<string, boolean>>({});
+  const ultimaActualizacionRef = useRef<Record<string, number>>({});
 
-  const mostrarNotificacionEstado = (nuevoEstado: EstadoPedido, previo?: EstadoPedido) => {
-    if (previo === nuevoEstado) return;
-    const key = `${pedidoActivoRef.current?.id || "x"}_${nuevoEstado}`;
-    if (notificadoEstadosRef.current[key]) return;
+  const mostrarNotificacionEstado = (
+    nuevoEstado: EstadoPedido,
+    previo?: EstadoPedido,
+    opcional?: { forzar?: boolean; motivo?: "cambio_estado" | "recordatorio_cocina" },
+  ) => {
+    const forzar = opcional?.forzar === true;
+    const motivo = opcional?.motivo || "cambio_estado";
+
+    if (!forzar && previo === nuevoEstado) return;
+    const key = forzar
+      ? `${pedidoActivoRef.current?.id || "x"}_${nuevoEstado}_${Date.now()}`
+      : `${pedidoActivoRef.current?.id || "x"}_${nuevoEstado}`;
+    if (!forzar && notificadoEstadosRef.current[key]) return;
     notificadoEstadosRef.current[key] = true;
 
     try {
@@ -192,7 +202,9 @@ function ClientPageContent() {
         icon: "info",
       },
       listo: {
-        title: "Pedido LISTO",
+        title: motivo === "recordatorio_cocina"
+          ? "Recordatorio: Tu pedido sigue LISTO"
+          : "Pedido LISTO",
         body: `Mesa ${mesaNombre} - Acercate al mostrador o espera en tu mesa.`,
         icon: "success",
       },
@@ -216,6 +228,8 @@ function ClientPageContent() {
             body: cfg.body,
             icon: "/icon-light-32x32.png",
             badge: "/icon-light-32x32.png",
+            tag: forzar ? `rec_${Date.now()}` : nuevoEstado,
+            ...(forzar ? { renotify: true } : {}),
           });
         } catch {}
       }
@@ -298,13 +312,28 @@ function ClientPageContent() {
 
           const estadoPrevio = pedidoActivoRef.current?.estado;
           const cambioEstado = estadoPrevio !== storedPedido.estado;
+          const fechaAnteriorMs = ultimaActualizacionRef.current[storedPedido.id];
+          const fechaNuevaMs = storedPedido.fecha_actualizacion
+            ? new Date(storedPedido.fecha_actualizacion).getTime()
+            : 0;
 
           if (cambioEstado) {
             mostrarNotificacionEstado(
               storedPedido.estado as EstadoPedido,
               estadoPrevio as EstadoPedido,
             );
+          } else if (
+            storedPedido.estado === "listo" &&
+            fechaNuevaMs > 0 &&
+            (!fechaAnteriorMs || fechaNuevaMs > fechaAnteriorMs + 1000)
+          ) {
+            mostrarNotificacionEstado(
+              "listo",
+              "listo",
+              { forzar: true, motivo: "recordatorio_cocina" },
+            );
           }
+          ultimaActualizacionRef.current[storedPedido.id] = fechaNuevaMs || Date.now();
 
           if (storedPedido.estado === "listo") {
             listoNotificadoRef.current = true;

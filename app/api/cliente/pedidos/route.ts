@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
-import { descontarInsumosPorPedido, revertirDescuentoInsumos, validarStockPedido } from '@/lib/inventario'
+import {
+  descontarInsumosPorPedido,
+  revertirDescuentoInsumos,
+  validarStockPedido,
+  descontarStockProductos,
+  revertirStockProductos,
+} from '@/lib/inventario'
 import {
   pedidoConItems,
   resolverMesaPublica,
@@ -200,17 +206,30 @@ export async function POST(req: NextRequest) {
       throw itemsError
     }
 
+    const itemsMap = items.map((item: any) => ({
+      producto_id: item.producto_id,
+      cantidad: item.cantidad || 1,
+    }))
+
+    const resStockProd = await descontarStockProductos(mesa.tenant_id, itemsMap)
+    if (!resStockProd.success) {
+      await supabase.from('pedido_items').delete().eq('pedido_id', pedido.id)
+      await supabase.from('pedidos').delete().eq('id', pedido.id)
+      return NextResponse.json(
+        { error: resStockProd.error || 'Stock insuficiente' },
+        { status: 409 },
+      )
+    }
+
     const resultadoDescuento = await descontarInsumosPorPedido(
       mesa.tenant_id,
       usuarioId,
       pedido.id,
-      items.map((item: any) => ({
-        producto_id: item.producto_id,
-        cantidad: item.cantidad || 1,
-      })),
+      itemsMap,
     )
 
     if (!resultadoDescuento.success) {
+      await revertirStockProductos(mesa.tenant_id, itemsMap)
       await supabase.from('pedido_items').delete().eq('pedido_id', pedido.id)
       await supabase.from('pedidos').delete().eq('id', pedido.id)
       return NextResponse.json(
