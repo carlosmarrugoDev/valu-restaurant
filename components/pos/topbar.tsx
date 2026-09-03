@@ -1,7 +1,6 @@
 'use client'
 
-import { PanelLeft } from 'lucide-react'
-
+import { LogOut, PanelLeft } from 'lucide-react'
 import { type Role, ROLES } from '@/lib/data'
 import { Button } from '@/components/ui/button'
 import {
@@ -15,6 +14,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { useAuth } from '@/components/auth/auth-context'
 
 type TopbarProps = {
   title: string
@@ -23,16 +23,17 @@ type TopbarProps = {
   onMenuClick: () => void
 }
 
-const roleInitials: Record<Role, string> = {
-  dueno: 'DR',
-  gerente: 'GM',
-  mesero: 'MS',
-  cocina: 'CK',
-  cajero: 'CJ',
-}
-
 export function Topbar({ title, role, onRoleChange, onMenuClick }: TopbarProps) {
-  const roleLabel = ROLES.find((r) => r.id === role)?.label ?? ''
+  const { user, logout } = useAuth()
+
+  const userName = user?.nombre || 'Usuario'
+  const tenantName = (user as any)?.tenant_nombre || 'Restaurante'
+  const initials = userName
+    .split(' ')
+    .map((n) => n[0])
+    .join('')
+    .substring(0, 2)
+    .toUpperCase()
 
   return (
     <header className="flex h-16 shrink-0 items-center justify-between gap-3 border-b border-border bg-background/80 px-4 backdrop-blur md:px-6">
@@ -43,7 +44,7 @@ export function Topbar({ title, role, onRoleChange, onMenuClick }: TopbarProps) 
         <div>
           <h1 className="font-display text-lg font-semibold tracking-tight md:text-xl">{title}</h1>
           <p className="hidden text-xs text-muted-foreground sm:block">
-            Restaurante Valu · Sucursal Centro
+            {tenantName} · Sucursal Principal
           </p>
         </div>
       </div>
@@ -65,16 +66,19 @@ export function Topbar({ title, role, onRoleChange, onMenuClick }: TopbarProps) 
           </Select>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
           <Avatar className="size-9 border border-border">
             <AvatarFallback className="bg-primary/15 text-sm font-medium text-primary">
-              {roleInitials[role]}
+              {initials}
             </AvatarFallback>
           </Avatar>
           <div className="hidden leading-tight lg:block">
-            <p className="text-sm font-medium">{roleLabel}</p>
-            <p className="text-xs text-muted-foreground">Sesión activa</p>
+            <p className="text-sm font-medium">{userName}</p>
+            <p className="text-xs text-muted-foreground">{tenantName}</p>
           </div>
+          <Button variant="ghost" size="icon" onClick={logout} title="Cerrar sesión" aria-label="Cerrar sesión">
+            <LogOut className="size-4 text-muted-foreground hover:text-destructive" />
+          </Button>
         </div>
       </div>
     </header>

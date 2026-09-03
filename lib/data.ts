@@ -15,10 +15,17 @@ export type ModuleId =
   | 'mesas'
   | 'pedidos'
   | 'cocina'
+  | 'entregas'
   | 'cobro'
+  | 'caja'
+  | 'productos'
   | 'reportes'
   | 'inventario'
+  | 'recetas'
   | 'personal'
+  | 'asignar'
+  | 'qr'
+  | 'turnos'
   | 'configuracion'
 
 // Qué módulos puede ver cada rol.
@@ -28,16 +35,39 @@ export const ROLE_ACCESS: Record<Role, ModuleId[]> = {
     'mesas',
     'pedidos',
     'cocina',
+    'entregas',
     'cobro',
+    'caja',
+    'productos',
     'reportes',
     'inventario',
+    'recetas',
     'personal',
+    'asignar',
+    'qr',
+    'turnos',
     'configuracion',
   ],
-  gerente: ['dashboard', 'mesas', 'pedidos', 'cocina', 'cobro', 'reportes', 'inventario', 'personal'],
-  mesero: ['mesas', 'pedidos'],
-  cocina: ['cocina'],
-  cajero: ['mesas', 'pedidos', 'cobro', 'reportes'],
+  gerente: [
+    'dashboard',
+    'mesas',
+    'pedidos',
+    'cocina',
+    'entregas',
+    'cobro',
+    'caja',
+    'productos',
+    'reportes',
+    'inventario',
+    'recetas',
+    'personal',
+    'asignar',
+    'qr',
+    'turnos',
+  ],
+  mesero: ['mesas', 'pedidos', 'entregas', 'cobro', 'qr'],
+  cocina: ['cocina', 'entregas'],
+  cajero: ['mesas', 'pedidos', 'cobro', 'caja', 'entregas', 'reportes', 'qr'],
 }
 
 export const currency = (n: number) =>

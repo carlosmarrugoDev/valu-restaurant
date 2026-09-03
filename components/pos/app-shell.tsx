@@ -7,6 +7,7 @@ import {
   ClipboardList,
   ChefHat,
   Receipt,
+  PackageCheck,
   ChartColumnBig,
   Boxes,
   Users,
@@ -22,6 +23,7 @@ import { TablesMap } from './tables-map'
 import { OrderTaking } from './order-taking'
 import { Kitchen } from './kitchen'
 import { Checkout } from './checkout'
+import { PendingDeliveries } from './pending-deliveries'
 import { Reports } from './reports'
 import { Inventory } from './inventory'
 import { SimpleModule } from './simple-module'
@@ -38,6 +40,7 @@ export const NAV_ITEMS: NavItem[] = [
   { id: 'pedidos', label: 'Pedidos', icon: ClipboardList },
   { id: 'cocina', label: 'Cocina', icon: ChefHat },
   { id: 'cobro', label: 'Cobro', icon: Receipt },
+  { id: 'entregas', label: 'Entregas', icon: PackageCheck },
   { id: 'reportes', label: 'Reportes', icon: ChartColumnBig },
   { id: 'inventario', label: 'Inventario', icon: Boxes },
   { id: 'personal', label: 'Personal', icon: Users },
@@ -97,6 +100,7 @@ export function AppShell() {
             {currentActive === 'pedidos' && <OrderTaking />}
             {currentActive === 'cocina' && <Kitchen />}
             {currentActive === 'cobro' && <Checkout />}
+            {currentActive === 'entregas' && <PendingDeliveries />}
             {currentActive === 'reportes' && <Reports />}
             {currentActive === 'inventario' && <Inventory />}
             {currentActive === 'personal' && (
